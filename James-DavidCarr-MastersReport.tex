@@ -1,1 +1,263 @@
-This is the first line of my report.
+\documentclass[12pt]{article}
+\usepackage{url}
+\usepackage{dirtytalk}
+\usepackage[margin=1.1in]{geometry}
+\usepackage[linesnumbered]{algorithm2e}
+\usepackage{listings}
+\usepackage{color}
+
+\newcommand\todo[1]{\textcolor{red}{#1}}
+
+\urlstyle{same}
+\definecolor{dkgreen}{rgb}{0,0.6,0}
+\definecolor{gray}{rgb}{0.5,0.5,0.5}
+\definecolor{mauve}{rgb}{0.58,0,0.82}
+
+\lstset{frame=tb,
+  language=Java,
+  aboveskip=3mm,
+  belowskip=3mm,
+  showstringspaces=false,
+  columns=flexible,
+  basicstyle={\small\ttfamily},
+  numbers=none,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\color{blue},
+  commentstyle=\color{dkgreen},
+  stringstyle=\color{mauve},
+  breaklines=true,
+  breakatwhitespace=true,
+  tabsize=3
+}
+
+\lstset{language=Java}
+
+\begin{document}
+
+\vspace*{\fill}
+\centerline{\large{\textbf{Abstract}}}
+Machine learning methods require many workers, all of whom iteratively analyse a dataset in parallel in a series of rounds, collecting their progress centrally at the end of each round. By implementing a work stealing algorithm, the delay introduced by the slowest workers each round will be mitigated. The goal of this project is to implement a work stealing algorithm and validate that it does provide a throughput increase of rounds completed per second. The algorithm is validated on the MNIST trainging set and is built on top of the work of the LSDS group at Imperial College London. An analysis and evaluation will be discussed in this report.
+\vspace*{\fill}
+
+\newpage
+
+\section{Chapter 1 - Introduction}
+
+\subsection{Motivation}
+
+The volume of data produced per year is increasing exponentially through social media, embedded Internet of Things sensors, and even financial records. Analysis of this data is incredibly valuable to the data owners: email services can better detect spam, banks can monitor for fraud, and cities can be managed more efficiently.
+\newline
+\newline
+In a report by The Department for Business Innovation and Skills\cite{smartCities}, it was estimated that the \say{global market for smart urban systems for transport, energy,
+healthcare, water and waste will amount to around \$400 Billion pa. by 2020}. Through more intelligent city management and improved data collection \say{we can manage cities more effectively} and \say{anticipate and solve problems more cost effectively}.
+\newline
+\newline
+In order to achieve these goals of cost effective and efficient public services the data collected must be analysed. Through machine learning techniques, automated systems can ensure continuous monitoring of services such as traffic and crime, and anticipate future events based on past data.
+\newline
+\newline
+Machine learning on large data sets has been common in the private sector for some while now. Google use emails to detect and prevent spam, Amazon recommend products to purchase based on a customer's history and other customers making similar purchases, and Facebook use facial recognition software to automatically ``tag'' friends in photos.
+\newline
+\newline
+At a high level of abstraction, these machine learning models work by ingesting large volumes of data, detecting patterns, and then mapping further inputs to outputs. For example, when a picture containing a face is uploaded to Facebook they will attempt to map it to users they believe to be in the picture. The initial process of ingesting the data however can be incredibly time consuming, Facebook reported in 2010\cite{facebookHaystack} that they stored 260 billion images representing over 20PB of data.
+\newline
+\newline
+In order to speed the process of reading and analysing data of this size, the process is sharded between many workers. Each worker analyses a subset of the data and aggregating their results in a central model in a process called training. As additional data is received, there will be an attempt to classify them against the central model which will assign a label identifying the data. The sharding of data presents new challenges in an attempt to reduce training times and simultaneously improving the accuracy of data labelling.
+
+\subsection{Objective}
+The objective of my research was to attempt to increase the training rate of an existing machine learning framework through the implementation of a work stealing algorithm. By attempting to reduce the delay imposed by straggling workers the rate of training should increase.
+\newline
+\newline
+I shall run a series of performance benchmarks to indicate that the work stealing algorithm will allow for faster training and to investigate whether work stealing allows for dynamic minibatch parameters.
+
+\newpage
+
+\section{Chapter 2 - Background}
+
+\subsection{Work Stealing}
+
+In a system comprised of many independent workers each of which have a set of tasks which they are reponsible for computing, there will be some variance in the rate of task completions among workers.
+\newline
+\newline
+The principle behind work stealing is to increase the total utilisation of resources in a processing system by exchanging tasks between workers according to their usage. Each worker maintains a queue of tasks to run, and when a worker has completed its tasks it will ``steal'' tasks from another worker's queue.
+\newline
+\newline
+The Java Runtime Environment contains the ForkJoinPool\cite{javaThreads}, a convenient concurrency primitive where tasks can be submitted to a pool of workers and are executed in parallel. Each worker maintains two seperate task queues, one for work it has been allocated, and another for work that it has stolen. Tasks that are submitted to the worker pool can optionally be written so that they are able to be decomposed into smaller tasks, which can be divided among workers.
+\newline
+
+\IncMargin{1em}
+\begin{algorithm}[H]
+  \eIf{my portion of the work is small enough}{
+   do the work directly\;
+   }{
+   split my work into two pieces\;
+   invoke the two pieces and wait for the results\;
+  }
+ \caption{ForkJoin Algorithm}
+ \label{ForkJoinAlgorithm}
+\end{algorithm}
+\DecMargin{1em}
+\medskip
+Algorithm \ref{ForkJoinAlgorithm} contains the pseudocode used in the Java language documentation to explain the ForkJoinPool framework. The ``fork'' occurs on line 4 where a task is divided into two subtasks, and the ``join'' is line 5 when waiting for the results.
+
+\newpage
+
+An implementation of the Fibonacci algorithm using the ForKJoinFramework taken from the Java documentation follows.
+\newline
+\begin{lstlisting}
+public class Fibonacci extends RecursiveTask<Integer> {
+  final int n;
+  Fibonacci(int n) { this.n = n; }
+  Integer compute() {
+    if (n <= 1)
+      return n;
+    Fibonacci f1 = new Fibonacci(n - 1);
+    f1.fork();
+    Fibonacci f2 = new Fibonacci(n - 2);
+    return f2.compute() + f1.join();
+  }
+}
+\end{lstlisting}
+
+
+It is important to note that work stealing occurs at both a user-level and kernel-level on a modern operating system. However, each of these has a different use case for work stealing. In the above Java example, a user-level program, the use of a ForkJoinPool was to convert a serial program into a parallel equivalent with a decreased runtime. Conversely, the Linux scheduler, a kernel-level program, uses work stealing to ensure fair access to resources for users. The programs presented in this paper are user-level programs and as such they are focused on improving performance.
+
+\newpage
+
+\subsection{Machine Learning}
+Machine Learning is a field of Computer Science associated with developing algorithms that can learn from and make predictions from data\cite{machineLearningDef}. It is closely related to the fields of Computational Statistics and Mathematical Optimisations, and results in computers which are able to detect patterns in data without explicit programming. The use of machine learning has spread well into industry and is now commonly used in areas such as finance, medicine, and telecommunications.
+\newline
+\subsubsection{Supervised Learning}
+This work will be focused on an area of machine learning called \textbf{Supervised Learning}. In supervised learning each input datum to the algorithm will contain a label of its true classification. The role of the algorithm is to learn a general rule, expressed as a model, to map an input datum to a label. The algorithm will train itself against a subset of all data, and then will be evaluated against a test subset to detemine the accuracy of its labelling rule. The process of assigning labels to input data is known as classification.
+\newline
+\newline
+The generation of this model is dependent on ``feature vectors'' which are extracted from the data as a normalisation step to facilitate statistical analysis. ``Features'' are properites of the data which help to develop rules for detecting patters, used in the eventual classification model. An example of a feature would be a the frequency of words associated with spam when attempting to filter emails.
+\newline
+\subsubsection{Feature Extraction}
+The extraction of features is used as a normalisation step where possibly unstructured data is converted into a structured equivalant. For example, sentiment analysis of a work of text would involve generating a frequency histogram of work counts.
+\newline
+\newline
+For image processing, feature extraction can involve resizing the image so that all data are of the same dimensions followed by converting a raster image to an equivalent matrix and possibly normalising the values of this matrix.
+\newline
+\subsubsection{MNIST Dataset}
+The MNIST dataset is a collection of handwritten digits, known as the ``Hello World'' of machine learning. It consists of 60,000 training examples and 10,000 testing examples, which are all accurately labelled. This project will be using the MNIST dataset in the evaluation of a work stealing algorithm.
+\newline
+\subsection{Handwriting Recognition}
+\subsection{Parameter Server Architecture}
+This project will investigate the effects of work stealing in a distributed machine learning framework. The advantage of a distributed framework are decreased training time, redundancy in the event of a single machine failing, and allowing training to occur on datasets that cannot fit on a single machine.
+\newline
+\newline
+In a single-worker parameter server environment there are two processes controlling the machine learning: the parameter server, acting as a datastore of the model, and the worker, updating the model based on new training data. Data is read by the single worker and processed in batches, referred to as ``minibatches'', and updates are sent to the parameter server. Processing is batched as the bandwidth between the worker and parameter server may be limited. The updates to the parameter server are also commutative and associative so a local reduction at the worker can occur before sending out the batched updates.
+\newline
+
+\IncMargin{1em}
+\begin{algorithm}[H]
+ \SetKwInOut{Input}{input}\SetKwInOut{Output}{output}
+ \Input{A list of all training images $N$ of size $n$}
+ \Input{The size of each minibatch $m$}
+ \BlankLine
+
+ \For{$i \leftarrow 0$ \KwTo $N.length/m$}{
+  \For{$j \leftarrow 0$ \KwTo $m$}{
+    $error \longleftarrow 0$\;
+    $n \longleftarrow N[j]$\;
+    $n' \longleftarrow normaliseImageToMatrix(n)$\;
+    $grad \longleftarrow extractGradients(n')$\;
+    $prediction \longleftarrow model.train(grad)$\;
+    $error \longleftarrow error + computeLoss(actual, prediction)$\;
+   }
+  $model.correctError(error)$\;
+ }
+ \caption{Single Worker Handwriting Image Recognition Algorithm}
+ \label{SingleWorkerMachineLearningAlgorithm}
+\end{algorithm}
+\DecMargin{1em}
+\medskip
+In order to facilitate faster processing, multi-worker environments divide the set of minibatches between workers and workers are trained in parallel. There are several synchronisation strategies that can be applied for the collected updates at the end of every minibatch for each worker.
+
+\subsubsection{Bulk Synchronous Parallel (BSP)}
+This is the simplest form of multi-worker synchronisation. At the end of each minibatch the workers send the updates to the parameter server which collects them and will not allow workers to proceed to the next batch until all updates have been received. The advantage of this strategy is that it guarantees that all workers will converge on a single model because workers by definition cannot display more than a single round of divergence in their models. There are however significant overheads in terms of waiting for the slowest worker per round to synchronise with the master. Traffic patters are also quite bursty with the potential for network congestion at the beginning of each minibatch round. This model allows for the greatest progress in a single round because all workers have received the updates from all other workers before proceeding to the next round.
+
+\subsubsection{Full Asynchronous}
+If we consider $l$ to be the limit of the number of minibatch rounds between the slowest and fastest workers then we can consider BSP to have $l = 1$. In a Fully Asychronous model then $l = \infty$, i.e. workers proceed at their own rate unimpared by the progress of others. Fully asynchronous models will saturate compute capacity, a metric we wish to optimise for. However, because there is no guarantee on them receving updates from other workers before proceeding on to the next minibatch, there is the possibility that the worker's local model is stale and outdated. This reduces the efficacy of training and will result in a slowed convergence. Worker's local models may also diverge reuslting in an ineffective global model at the parameter server.
+
+\subsubsection{Bounded Staleness}
+In a Bounded Staleness model $l$ is configurable. In the event of a slow worker being caused by an transient delay, for example a pathological kernel scheduling, unaffected workers can continue to make progress and the delayed worker will hopefully catch up. If a worker is consistently slower, as could be the case with a less powerful host machine, then the same problems will occur with BSP, albeit with a difference of multiple minibatch rounds, rather than one.
+\newline
+\newline
+In a conventional machine learning framework, the computation and updating of local parameters will be performed seperately. The intention is to saturate all possible resources, which is only attainable if the seperate processes are decoupled.
+\newline
+\newline
+The algorithm for a mulit-worker environment is very similar to that of a single worker as can be seen in the difference between Algorithm \ref{SingleWorkerMachineLearningAlgorithm} and Algorithm \ref{MultiWorkerMachineLearningAlgorithm}. Note that the worker no longer accepts all training images, but rather a subset of them, and that the concept of a staleness bound has been introduced to prevent divergence between the workers.
+
+\IncMargin{1em}
+\begin{algorithm}[H]
+ \SetKwInOut{Input}{input}\SetKwInOut{Output}{output}
+ \Input{A list of this worker's training images $N$}
+ \Input{The size of each minibatch $m$}
+ \Input{The limit of staleness between the slowest and fastest workers $l$}
+ \BlankLine
+
+ $round \longleftarrow 0$\;
+ \For{$i \leftarrow 0$ \KwTo $N.length/m$}{
+  \While{$round - l > globalRound$}{
+    \tcc{Busy wait until the staleness limit has been reached}
+  }
+  \For{$j \leftarrow 0$ \KwTo $m$}{
+    $error \longleftarrow 0$\;
+    $n \longleftarrow N[j]$\;
+    $n' \longleftarrow normaliseImageToMatrix(n)$\;
+    $grad \longleftarrow extractGradients(n')$\;
+    $prediction \longleftarrow model.train(grad)$\;
+    $error \longleftarrow error + computeLoss(actual, prediction)$\;
+   }
+  \tcc{This will send updates to the parameter server}
+  $model.correctError(error)$\;
+  $round \longleftarrow round + 1$\;
+ }
+ \caption{Multiple Workers Handwriting Image Recognition Algorithm}
+ \label{MultiWorkerMachineLearningAlgorithm}
+\end{algorithm}
+\DecMargin{1em}
+
+\medskip
+\medskip
+
+Algorithm \ref{MultiWorkerMachineLearningAlgorithm} and Algorithm \ref{ModelUpdate} execute in parallel on seperate threads per worker to ensure the greatest use of resources possible.
+\newline
+
+\IncMargin{1em}
+\begin{algorithm}[H]
+  $globalRound \longleftarrow 0$\;
+  \While{$true$}{
+    $update \longleftarrow receiveParameterServerModelUpdate()$\;
+    $model.applyUpdate(update)$\;
+    $globalRound \longleftarrow globalRound + 1$\;
+  }
+ \caption{Model Update}
+ \label{ModelUpdate}
+\end{algorithm}
+\DecMargin{1em}
+\medskip
+
+\newpage
+
+\begin{thebibliography}{9}
+
+\bibitem{smartcities}
+Department for Business Innovation and Skills
+\\\url{https://www.gov.uk/government/uploads/system/uploads/attachment_data/file/246019/bis-13-1209-smart-cities-background-paper-digital.pdf}
+
+\bibitem{facebookHaystack}
+Beaver D, Kumar S, Li HC, Sobel J, Vajgel P. Finding a Needle in Haystack: Facebook's Photo Storage. InOSDI 2010 Oct 4 (Vol. 10, pp. 1-8).
+
+\bibitem{javaThreads}
+Java 7 documentation of the ForkJoinPool ExecutorService which implements a form of work stealing.
+\\\url{https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/ForkJoinPool.html}
+
+\bibitem{machineLearningDef}
+Journal of Machine Learning Glossary of Terms
+\\\url{http://ai.stanford.edu/~ronnyk/glossary.html}
+
+\end{thebibliography}
+
+\end{document}

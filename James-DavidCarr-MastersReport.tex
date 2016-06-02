@@ -5,7 +5,7 @@
 \usepackage[linesnumbered]{algorithm2e}
 \usepackage{listings}
 \usepackage{color}
-%\usepackage{cite}
+\usepackage[autostyle]{csquotes} 
 \usepackage[square,sort,comma,numbers]{natbib}
 
 \newcommand\todo[1]{\textcolor{red}{#1}}
@@ -64,12 +64,27 @@ At a high level of abstraction, these machine learning models work by ingesting 
 \newline
 \newline
 In order to speed the process of reading and analysing data of this size, the process is sharded between many workers. Each worker analyses a subset of the data and aggregating their results in a central model in a process called training. As additional data is received, there will be an attempt to classify them against the central model which will assign a label identifying the data. The sharding of data presents new challenges in an attempt to reduce training times and simultaneously improving the accuracy of data labelling.
+\newline
+\newline
+One of the major problems with any sharded system is the ability to handle slow workers, also known as stragglers. Many algorithms in the field of machine learning are synchronous and require the termination of all workers before proceeding to the next round of computation and are therefore limited by the slowest worker. If the effects of these stragglers were to be alleviated, it would improve the performance of the algorithm and thus complete the training phase sooner.  
+
+\newpage
+
+\subsection{Problem Statement}
+There are currently many Machine Learning frameworks used in industry, and as with most industrial software, performance is a major concern. These frameworks are typically able to run in a distributed fashion across many workers in order to improve performance. In any distributed environment, there will be a distribution of execution run times, caused by non-deterministic factors such as kernel scheduling, network packet drops, and cache misses. In some pathological cases there will be workers who are significantly delayed compared to other worker. These workers are referred to as stragglers. Certain machine learning algorithms are dependent on the slowest workers and will block until completion of the slowest straggler. 
+\newline
+The aim of this project is to develop and evaluate algorithms to mitigate the effects of these slowest stragglers through the use of work-stealing. We also aim to develop such an algorithm that does not negatively affect the accuracy of the system, as this is the primary objective, with performance being secondary.
+
+\newpage
 
 \subsection{Objective}
-The objective of my research was to attempt to increase the training rate of an existing machine learning framework through the implementation of a work stealing algorithm. By attempting to reduce the delay imposed by straggling workers the rate of training should increase.
-\newline
-\newline
-I shall run a series of performance benchmarks to indicate that the work stealing algorithm will allow for faster training and to investigate whether work stealing allows for dynamic minibatch parameters.
+The objective of this project are:
+
+\begin{enumerate}
+\item Evaluate the performance improvements through the use of dynamically scheduled threads rather than statically scheduled.
+\item Develop a centralised and decentralised algorithm so that faster workers may steal work from slower workers.
+\item Demonstrate the effect of these two algorithms in both the presence and absence of stragglers.
+\end{enumerate}
 
 \newpage
 
@@ -83,7 +98,7 @@ In a system comprised of many independent workers each of which have a set of ta
 The principle behind work stealing is to increase the total utilisation of resources in a processing system by exchanging tasks between workers according to their usage. Each worker maintains a queue of tasks to run, and when a worker has completed its tasks it will ``steal'' tasks from another worker's queue.
 \newline
 \newline
-The Java Runtime Environment contains the ForkJoinPool\cite{javaThreads}, a convenient concurrency primitive where tasks can be submitted to a pool of workers and are executed in parallel. Each worker maintains two seperate task queues, one for work it has been allocated, and another for work that it has stolen. Tasks that are submitted to the worker pool can optionally be written so that they are able to be decomposed into smaller tasks, which can be divided among workers.
+The Java Runtime Environment contains the ForkJoinPool\cite{javaThreads}, a convenient concurrency primitive where tasks can be submitted to a pool of workers and executed in parallel. Each worker maintains two separate task queues, one for work it has been allocated, and another for work that it has stolen. Tasks that are submitted to the worker pool can optionally be written so that they are able to be decomposed into smaller tasks, which can be divided among workers.
 \newline
 
 \IncMargin{1em}
@@ -122,6 +137,83 @@ public class Fibonacci extends RecursiveTask<Integer> {
 
 
 It is important to note that work stealing occurs at both a user-level and kernel-level on a modern operating system. However, each of these has a different use case for work stealing. In the above Java example, a user-level program, the use of a ForkJoinPool was to convert a serial program into a parallel equivalent with a decreased runtime. Conversely, the Linux scheduler, a kernel-level program, uses work stealing to ensure fair access to resources for users. The programs presented in this paper are user-level programs and as such they are focused on improving performance.
+
+\subsubsection{Dynamic vs Static Scheduling}
+In the area of parallel computing, there exists the concept of an "embarrassingly parallel" task, which involves a set of operations with no dependencies between any of the tasks. A scalar-vector product is such a task because each element of the vector can be multiplied independently. Such a task is limited by the computational resources available until an upper bound is met. The upper bound for a scalar-vector product is the number of elements in the vector. Beyond this amount, no additional resources will be useful as there is no work available for them to execute.
+\newline
+We shall now consider the case in which there is a pool of work to complete, and fewer computational resources than the amount of work, implying that each resource will be required to execute at least one piece of work. In such a model we can assign work to these resources in either a dynamic or static method.
+\newline
+A static method is one where resources are assigned work ahead of time, usually using some combination of resource identifiers and work identifiers. An example of a statically scheduled algorithm of a scalar-vector product is presented in Algorithm \ref{StaticSchedule}.
+
+\IncMargin{1em}
+\begin{algorithm}[H]
+\SetKwInOut{Input}{input}\SetKwInOut{Output}{output}
+ \Input{The vector $N$ of size $n$}
+ \Input{The scalar $s$}
+ \Input{This resource's identifier $i$}
+ \Input{The number of resources $r$}
+ \BlankLine
+ 
+ $j = i$\;
+ \While{$j < n$}{
+   $N[j] \longleftarrow N[j]*s$\;
+   $j \longleftarrow j + r$\;
+ }
+ \caption{Statically Scheduled Scalar-Vector Product}
+ \label{StaticSchedule}
+\end{algorithm}
+\DecMargin{1em}
+\medskip
+
+The above algorithm is conceptually very simple, and is guaranteed to multiply every element in the vector with the given scalar in the absence of resource failures. 
+\newline
+However, under this schedule it is possible for the performance of the overall algorithm to be impacted by a single, slower resource. Although all resources operate independently the overall completion of the algorithm is dependent on the slowest result being completed. 
+\newline
+Some optimisations may include grouping together the elements that a resource will need to access to improve cache performance, but these are inconsequential to the problem of dealing with the slowest resource.
+\newline
+However, what if instead of resources being assigned work ahead of time, they were able to complete work at the fastest rate of which they are capable. This would alleviate the impact caused by the slowest worker simply due to it processing fewer tasks.
+\newline
+\newline
+Dynamic scheduling usually requires the use of some piece of state to represent progress, and resources modify the state to represent work completion. These pieces of state are usually atomic or thread-safe data structures in order to avoid the risk of race conditions.
+\newline
+Continuing the above example of a scalar-vector product Algorithm \ref{DynamicSchedule} presents an alternative to Algorithm \ref{StaticSchedule} which is resilient against slow resources.
+\newline
+
+\IncMargin{1em}
+\begin{algorithm}[H]
+\SetKwInOut{Input}{input}\SetKwInOut{Output}{output}
+ \Input{The vector $N$ of size $n$}
+ \Input{The scalar $s$}
+ \Input{The number of resources $r$}
+ \Input{An integer $c$ to represent the current element being processed, and that can be incremented atomically}
+ \BlankLine
+ 
+ $j = 0$\;
+ \While{$(j \leftarrow c.getAndInc()) < n$}{
+   $N[j] \longleftarrow N[j]*s$\;
+ }
+ \caption{Dynamically Scheduled Scalar-Vector Product}
+ \label{DynamicSchedule}
+\end{algorithm}
+\DecMargin{1em}
+\medskip
+
+In Algorithm \ref{DynamicSchedule} the variable $j$ is a thread-local variable used to store the return value of the $getAndInc$ operation on the atomic integer which atomically returns the current value and incrementing it. Because the value of $c$ only monotonically and atomically increases, it is not possible for multiple threads to have the same value of $c$, and therefore each element of $N$ will only be multiplied once. It can be seen that the rate of completion of such an algorithm is now less vulnerable to the slowest resource as faster resources can effectively "steal" some of the work.
+\newline
+If the relative performances of the resources were known ahead of time, it would be possible to construct a static scheduling which would take account of this and attempt to weight the amount of work a resource receives by its performance. However, such an algorithm is unable to deal with dynamic variations in performance often encountered in real world use cases. There are many non-deterministic factors affecting the performance of the overall algorithm and a static scheduler is not flexible enough to adapt to consider these factors when assigning work.
+\newline
+It is also important to realise that not all algorithms could benefit from a dynamic scheduling. If the workers are co-located on a single, physical machine then the average case for inter-resource communication will be substantially lower than for inter-machine communication. In the above example, the atomically incrementable variable could be accessed over a network connection, but the overhead of such an exchange would likely outweigh any performance benefits of work-stealing for most application executions.
+\newline
+There are pathological cases in which different schedules provide no benefit. Consider a resource that has crashed and that there is also no upper bound on execution time of a task. Other workers will be unable to determine if a worker has either crashed or is currently processing.
+\newline
+Using the definition of a synchronous algorithm from \cite{mageeanalyzing}.
+
+\blockquote{Synchronous distributed systems are those in which there is assumed
+to be a known upper bound on each processing step, a known upper bound on
+message transmission and processes have perfectly synchronized physical
+clocks.}
+
+From this definition it can be seen that both Algorithm \ref{StaticSchedule} and Algorithm \ref{DynamicSchedule} are not synchronous as there is no bound on processing steps, and it cannot be assumed that all workers have synchronised physical clocks, therefore stragglers appear. The problem is handling the case where a single resource has either crashed, or could be taking an indefinite amount of time to process. If we consider the 
 
 \newpage
 

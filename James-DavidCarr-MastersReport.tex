@@ -5,6 +5,8 @@
 \usepackage[linesnumbered]{algorithm2e}
 \usepackage{listings}
 \usepackage{color}
+%\usepackage{cite}
+\usepackage[square,sort,comma,numbers]{natbib}
 
 \newcommand\todo[1]{\textcolor{red}{#1}}
 
@@ -241,23 +243,8 @@ Algorithm \ref{MultiWorkerMachineLearningAlgorithm} and Algorithm \ref{ModelUpda
 
 \newpage
 
-\begin{thebibliography}{9}
+\bibliographystyle{plain}
+\bibliography{James-DavidCarr-MastersReport}
 
-\bibitem{smartcities}
-Department for Business Innovation and Skills
-\\\url{https://www.gov.uk/government/uploads/system/uploads/attachment_data/file/246019/bis-13-1209-smart-cities-background-paper-digital.pdf}
-
-\bibitem{facebookHaystack}
-Beaver D, Kumar S, Li HC, Sobel J, Vajgel P. Finding a Needle in Haystack: Facebook's Photo Storage. InOSDI 2010 Oct 4 (Vol. 10, pp. 1-8).
-
-\bibitem{javaThreads}
-Java 7 documentation of the ForkJoinPool ExecutorService which implements a form of work stealing.
-\\\url{https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/ForkJoinPool.html}
-
-\bibitem{machineLearningDef}
-Journal of Machine Learning Glossary of Terms
-\\\url{http://ai.stanford.edu/~ronnyk/glossary.html}
-
-\end{thebibliography}
 
 \end{document}

@@ -7,6 +7,9 @@
 \usepackage{color}
 \usepackage[autostyle]{csquotes} 
 \usepackage[square,sort,comma,numbers]{natbib}
+\usepackage{graphicx}
+\usepackage[english]{babel}
+\usepackage{float}
 
 \newcommand\todo[1]{\textcolor{red}{#1}}
 
@@ -43,6 +46,10 @@ Machine learning methods require many workers, all of whom iteratively analyse a
 
 \newpage
 
+\tableofcontents
+
+\newpage
+
 \section{Chapter 1 - Introduction}
 
 \subsection{Motivation}
@@ -71,7 +78,11 @@ One of the major problems with any sharded system is the ability to handle slow 
 \newpage
 
 \subsection{Problem Statement}
-There are currently many Machine Learning frameworks used in industry, and as with most industrial software, performance is a major concern. These frameworks are typically able to run in a distributed fashion across many workers in order to improve performance. In any distributed environment, there will be a distribution of execution run times, caused by non-deterministic factors such as kernel scheduling, network packet drops, and cache misses. In some pathological cases there will be workers who are significantly delayed compared to other worker. These workers are referred to as stragglers. Certain machine learning algorithms are dependent on the slowest workers and will block until completion of the slowest straggler. 
+There are currently many Machine Learning frameworks used in industry, and as with most industrial software, performance is a major concern. These frameworks are typically able to run in a distributed fashion across many workers in order to improve performance. In any distributed environment, there will be a distribution of execution run times, caused by non-deterministic factors such as kernel scheduling, network packet drops, and cache misses. In some pathological cases there will be workers who are significantly delayed compared to other worker. These workers are referred to as stragglers. Certain machine learning algorithms are dependent on the slowest workers and will block until completion of the slowest straggler.
+\newline
+Workers can be delayed for both transient reasons such as temporary network degradation or resource over subscription, but also for permanent reasons such as disk drive failures. This project will focus on mitigating the effects of transient failures. If a worker experiences a permanent failure, the larger task can either be aborted, or work can be redistributed amongst other, healthy workers. In an initial revision of Google's MapReduce \citep{dean2008mapreduce}, the authors write that "given that there is only a single master, its failure is unlikely; therefore our current implementation aborts the MapReduce computation if the master fails". A solution used by many distributed frameworks such as MapReduce and Apache Spark \cite{zaharia2012resilient} is to "re-run it on another node".
+\newline
+These solutions to permanent worker failures have been very successful and as such the problem of failing workers is solved in industry. This project will focus on temporary performance degradation of workers, especially so in an environment of limited physical resources. Forward progress will be made using the workers, however they will operate at their maximum capacity and will not impair other workers.
 \newline
 The aim of this project is to develop and evaluate algorithms to mitigate the effects of these slowest stragglers through the use of work-stealing. We also aim to develop such an algorithm that does not negatively affect the accuracy of the system, as this is the primary objective, with performance being secondary.
 
@@ -118,9 +129,7 @@ Algorithm \ref{ForkJoinAlgorithm} contains the pseudocode used in the Java langu
 
 \newpage
 
-An implementation of the Fibonacci algorithm using the ForKJoinFramework taken from the Java documentation follows.
-\newline
-\begin{lstlisting}
+\begin{lstlisting}[caption={An implementation of the Fibonacci algorithm using the ForkJoinFramework taken from the Java documentation},label=JavaRecursive]
 public class Fibonacci extends RecursiveTask<Integer> {
   final int n;
   Fibonacci(int n) { this.n = n; }
@@ -136,19 +145,20 @@ public class Fibonacci extends RecursiveTask<Integer> {
 \end{lstlisting}
 
 
+
 It is important to note that work stealing occurs at both a user-level and kernel-level on a modern operating system. However, each of these has a different use case for work stealing. In the above Java example, a user-level program, the use of a ForkJoinPool was to convert a serial program into a parallel equivalent with a decreased runtime. Conversely, the Linux scheduler, a kernel-level program, uses work stealing to ensure fair access to resources for users. The programs presented in this paper are user-level programs and as such they are focused on improving performance.
 
 \subsubsection{Dynamic vs Static Scheduling}
-In the area of parallel computing, there exists the concept of an "embarrassingly parallel" task, which involves a set of operations with no dependencies between any of the tasks. A scalar-vector product is such a task because each element of the vector can be multiplied independently. Such a task is limited by the computational resources available until an upper bound is met. The upper bound for a scalar-vector product is the number of elements in the vector. Beyond this amount, no additional resources will be useful as there is no work available for them to execute.
+In the area of parallel computing, there exists the concept of an "embarrassingly parallel" task, which involves a set of operations with no inter-operation dependencies. A scalar-vector product is such a task because each element of the vector can be multiplied independently. Embarrassingly parallel tasks are limited by the computational resources available until an upper bound is met. The upper bound for a scalar-vector product is the number of elements in the vector. Beyond this amount, no additional resources will be useful as there is no work available for them to execute.
 \newline
-We shall now consider the case in which there is a pool of work to complete, and fewer computational resources than the amount of work, implying that each resource will be required to execute at least one piece of work. In such a model we can assign work to these resources in either a dynamic or static method.
+We shall now consider the case in which there is a pool of work to complete, and fewer computational resources than the amount of work, implying that each resource will be required to execute at least one piece of work. In such a model we can assign work to these resources with either a dynamic or static schedule.
 \newline
 A static method is one where resources are assigned work ahead of time, usually using some combination of resource identifiers and work identifiers. An example of a statically scheduled algorithm of a scalar-vector product is presented in Algorithm \ref{StaticSchedule}.
 
 \IncMargin{1em}
 \begin{algorithm}[H]
 \SetKwInOut{Input}{input}\SetKwInOut{Output}{output}
- \Input{The vector $N$ of size $n$}
+ \Input{A reference $N$ to a vector of size $n$}
  \Input{The scalar $s$}
  \Input{This resource's identifier $i$}
  \Input{The number of resources $r$}
@@ -165,7 +175,7 @@ A static method is one where resources are assigned work ahead of time, usually 
 \DecMargin{1em}
 \medskip
 
-The above algorithm is conceptually very simple, and is guaranteed to multiply every element in the vector with the given scalar in the absence of resource failures. 
+The above algorithm is conceptually very simple, and is guaranteed to eventually multiply every element in the vector with the given scalar in the absence of resource failures. 
 \newline
 However, under this schedule it is possible for the performance of the overall algorithm to be impacted by a single, slower resource. Although all resources operate independently the overall completion of the algorithm is dependent on the slowest result being completed. 
 \newline
@@ -174,9 +184,9 @@ Some optimisations may include grouping together the elements that a resource wi
 However, what if instead of resources being assigned work ahead of time, they were able to complete work at the fastest rate of which they are capable. This would alleviate the impact caused by the slowest worker simply due to it processing fewer tasks.
 \newline
 \newline
-Dynamic scheduling usually requires the use of some piece of state to represent progress, and resources modify the state to represent work completion. These pieces of state are usually atomic or thread-safe data structures in order to avoid the risk of race conditions.
+Dynamic scheduling usually requires the use of some piece of state to track progress, and resources modify the state to represent work completion. These pieces of state are usually atomic or thread-safe data structures in order to avoid the risk of race conditions.
 \newline
-Continuing the above example of a scalar-vector product Algorithm \ref{DynamicSchedule} presents an alternative to Algorithm \ref{StaticSchedule} which is resilient against slow resources.
+Continuing the above example of a scalar-vector product Algorithm \ref{DynamicSchedule} presents an alternative to Algorithm \ref{StaticSchedule} which is more resilient against slow resources.
 \newline
 
 \IncMargin{1em}
@@ -198,13 +208,13 @@ Continuing the above example of a scalar-vector product Algorithm \ref{DynamicSc
 \DecMargin{1em}
 \medskip
 
-In Algorithm \ref{DynamicSchedule} the variable $j$ is a thread-local variable used to store the return value of the $getAndInc$ operation on the atomic integer which atomically returns the current value and incrementing it. Because the value of $c$ only monotonically and atomically increases, it is not possible for multiple threads to have the same value of $c$, and therefore each element of $N$ will only be multiplied once. It can be seen that the rate of completion of such an algorithm is now less vulnerable to the slowest resource as faster resources can effectively "steal" some of the work.
+In Algorithm \ref{DynamicSchedule} the variable $j$ is a thread-local variable used to store the return value of the $getAndInc$ operation on the atomic integer which atomically returns the current value and incrementing it. Because the value of $c$ only monotonically and atomically increases, it is not possible for multiple threads to have the same value of $c$, and therefore each element of $N$ will only be modified once. It can be seen that the rate of completion of such an algorithm is now less vulnerable to the slowest resource as faster resources can effectively "steal" some of the work the slower resource would have been allocated under a static schedule.
 \newline
-If the relative performances of the resources were known ahead of time, it would be possible to construct a static scheduling which would take account of this and attempt to weight the amount of work a resource receives by its performance. However, such an algorithm is unable to deal with dynamic variations in performance often encountered in real world use cases. There are many non-deterministic factors affecting the performance of the overall algorithm and a static scheduler is not flexible enough to adapt to consider these factors when assigning work.
+If the relative performances of the resources were known ahead of time, it would be possible to construct a static scheduling which would take account of this and attempt to weight the amount of work a resource receives by its performance. However, such an algorithm would be unable to deal with dynamic variations in performance often encountered in real world use cases. There are many non-deterministic factors affecting the performance of the overall algorithm and a static scheduler is not flexible enough to adapt to consider these factors when assigning work.
 \newline
 It is also important to realise that not all algorithms could benefit from a dynamic scheduling. If the workers are co-located on a single, physical machine then the average case for inter-resource communication will be substantially lower than for inter-machine communication. In the above example, the atomically incrementable variable could be accessed over a network connection, but the overhead of such an exchange would likely outweigh any performance benefits of work-stealing for most application executions.
 \newline
-There are pathological cases in which different schedules provide no benefit. Consider a resource that has crashed and that there is also no upper bound on execution time of a task. Other workers will be unable to determine if a worker has either crashed or is currently processing.
+There are pathological cases in which different schedules provide no benefit. Consider a resource that has crashed in an environment with no upper bound on execution time of a task. Other workers will be unable to determine if a worker has either crashed or is currently processing.
 \newline
 Using the definition of a synchronous algorithm from \cite{mageeanalyzing}.
 
@@ -213,7 +223,68 @@ to be a known upper bound on each processing step, a known upper bound on
 message transmission and processes have perfectly synchronized physical
 clocks.}
 
-From this definition it can be seen that both Algorithm \ref{StaticSchedule} and Algorithm \ref{DynamicSchedule} are not synchronous as there is no bound on processing steps, and it cannot be assumed that all workers have synchronised physical clocks, therefore stragglers appear. The problem is handling the case where a single resource has either crashed, or could be taking an indefinite amount of time to process. If we consider the 
+From this definition it can be seen that both Algorithm \ref{StaticSchedule} and Algorithm \ref{DynamicSchedule} are not synchronous as there is no bound on processing steps, and it cannot be assumed that all workers have synchronised physical clocks, therefore stragglers appear. The problem is handling the case where a single resource has either crashed, or could be taking an indefinite amount of time to process. In the case where execution is blocked on a single node for an arbitrary amount of time, no scheduling system will be of use.
+
+\subsubsection{Side Effect Free Operations and Idempotence}
+Algorithms \ref{StaticSchedule} and \ref{DynamicSchedule} are both stateful solutions to the problem of a scalar vector product. This is because they are assumed to be run on multiple resources who will modify some global piece of state, in this case the vector.
+\newline
+We will instead consider an alternative solution which decouples the computation from the state modification. A set of $r$ resources shall be divided into a single, central resource that will manage updates to the input vector, and $r-1$ resources responsible for computing the product of a scalar and vector element.
+
+\IncMargin{1em}
+\begin{algorithm}[H]
+\SetKwInOut{Input}{input}\SetKwInOut{Output}{output}
+ \Input{The vector $N$ of size $n$}
+ \Input{The scalar $s$}
+ \Input{The number of resources $r$, $r < n$}
+ \Output{The vector $N$ after a scalar-vector product with $s$}
+ \BlankLine
+ 
+ $j = 0$\;
+ \For{$i \gets 1$ \KwTo $r$}{
+   $sendTaskToResource(i, multiply, N[j], s)$\;
+   $j \longleftarrow j + 1$\;
+ }
+ \While{$true$}{
+   $index, result, resourceID = fetchLatestResult()$\;
+   $N[index] \longleftarrow result$\;
+   \If{$j = n - 1$}{
+     $break$\;
+   }
+   $sendTaskToResource(resourceID, multiply, N[j], s)$\;
+   $j \longleftarrow j + 1$\;
+ }
+ \caption{Central resource responsible for state manipulation}
+ \label{StatelessProduct}
+\end{algorithm}
+\DecMargin{1em}
+\medskip
+
+The function $sendTaskToResource$ used in Algorithm \ref{StatelessProduct} instructs the resource with the identifier equal to the first parameter to run the task identified by the second parameter using all subsequent parameters as task arguments.
+\newline
+In this example the other resources will be executing a simple multiplication of their inputs: the vector element and the scalar. Note that the actual computation here is very simply purely for demonstrative purposes. In a real-world application, the work would be much more intensive and justify the need for multiple workers. This multiplication is also a function as it is guaranteed that given the same inputs that the same output will be returned.
+\newline
+The benefit of this system is that worker computations are now side-effect free as they only operate on state passed in as a parameter, rather than any global state. If the pathological case previously discussed where a single worker spends a potentially unbounded amount of time were to occur it can now be mitigated. The solution would be to wait until all work has been assigned and then for all outstanding tasks issue a second request to a second resource and the central resource will use whichever value returns soonest. This is only possible because the operations executed on each resource are side-effect free functions which guarantee that they will provide the same output give identical inputs.
+\newline
+Such a solution is not viable without creating side effect free tasks as if two executions of the task were to occur they could both modify the external state.
+\newline
+Consider Figure \ref{OverlappingExecution} which visualises how the overlapping of two executions could result in an incorrect result. There are solutions which account for this, however, it is much simpler to develop a solution for which this problem cannot occur. 
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{A demonstration of how multiple executions of the same task can interleave to return an incorrect result}
+  \label{OverlappingExecution}
+\end{figure}
+
+In Algorithm \ref{StatelessProduct} the only state modification is assignment which is an idempotent operation meaning that it can occur multiple times and still return an identical result. Therefore if two resources were to return their identical results before the termination of the algorithm it would not cause the result to be incorrect.
+\newline
+This approach has been used in industry with a notable example being Google's MapReduce framework. The white paper released detailing the framework \cite{dean2008mapreduce} contained the following explanation of the framework's solution to dealing with stragglers.
+
+\blockquote{When a MapReduce operation is close
+to completion, the master schedules backup executions
+of the remaining in-progress tasks. The task is marked
+as completed whenever either the primary or the backup
+execution completes.}
 
 \newpage
 
@@ -242,6 +313,14 @@ This project will investigate the effects of work stealing in a distributed mach
 \newline
 In a single-worker parameter server environment there are two processes controlling the machine learning: the parameter server, acting as a datastore of the model, and the worker, updating the model based on new training data. Data is read by the single worker and processed in batches, referred to as ``minibatches'', and updates are sent to the parameter server. Processing is batched as the bandwidth between the worker and parameter server may be limited. The updates to the parameter server are also commutative and associative so a local reduction at the worker can occur before sending out the batched updates.
 \newline
+Figure \ref{ParameterServerArchitecture} contains a visualisation of the parameter server architecture.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{A demonstration of how multiple executions of the same task can interleave to return an incorrect result}
+  \label{ParameterServerArchitecture}
+\end{figure}
 
 \IncMargin{1em}
 \begin{algorithm}[H]
@@ -267,6 +346,8 @@ In a single-worker parameter server environment there are two processes controll
 \DecMargin{1em}
 \medskip
 In order to facilitate faster processing, multi-worker environments divide the set of minibatches between workers and workers are trained in parallel. There are several synchronisation strategies that can be applied for the collected updates at the end of every minibatch for each worker.
+
+
 
 \subsubsection{Bulk Synchronous Parallel (BSP)}
 This is the simplest form of multi-worker synchronisation. At the end of each minibatch the workers send the updates to the parameter server which collects them and will not allow workers to proceed to the next batch until all updates have been received. The advantage of this strategy is that it guarantees that all workers will converge on a single model because workers by definition cannot display more than a single round of divergence in their models. There are however significant overheads in terms of waiting for the slowest worker per round to synchronise with the master. Traffic patters are also quite bursty with the potential for network congestion at the beginning of each minibatch round. This model allows for the greatest progress in a single round because all workers have received the updates from all other workers before proceeding to the next round.
@@ -335,8 +416,70 @@ Algorithm \ref{MultiWorkerMachineLearningAlgorithm} and Algorithm \ref{ModelUpda
 
 \newpage
 
+\section{Work Stealing Algorithms}
+
+To implement work stealing between workers in a parameter server architecture two algorithms were developed. One of which focused on a decentralised, worker-to-worker communication model, and another using the parameter server as a central co-ordinator. In this chapter I will discuss the implementation of both algorithms as well as considerations for real world use.
+
+\subsection{Centralised Algorithm}
+
+The centralised approach is based upon workers sending periodic updates to the master with their current status. The interval between these updates is configurable, but through evaluation of these intervals I have found that diminishing returns occur beyond TODO intervals. Figure \ref{IntervalGraph} details that beyond TODO intervals there exists a diminishing return in the benefit of finer progress granularity. 
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Graph showing update interval against relative performance.}
+  \label{IntervalGraph}
+\end{figure}
+
+In the MapReduce paper \citep{dean2008mapreduce} the authors provide causes for stragglers such as "a machine with a bad disk may experience frequent correctable errors that slow its read performance from 30 MB/s to 1 MB/s" and "competition for CPU, memory, local disk, or network bandwidth". In a paper analysing network failures in data centres by Microsoft Research \citep{gill2011understanding} the main cause of failures was found to be software bugs in load balancers which caused many small packets such as ACKs and keep-alives to be dropped.
+\newline
+As mentioned previously, this project will be focussing on dealing with workers experiencing transient performance degradation. In the above examples, only the resource over-subscription and network packet drops will be considered. 
+
+\newpage
+
 \bibliographystyle{plain}
 \bibliography{James-DavidCarr-MastersReport}
 
-
 \end{document}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

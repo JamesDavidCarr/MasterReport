@@ -5,11 +5,12 @@
 \usepackage[linesnumbered]{algorithm2e}
 \usepackage{listings}
 \usepackage{color}
-\usepackage[autostyle]{csquotes} 
+\usepackage[autostyle]{csquotes}
 \usepackage[square,sort,comma,numbers]{natbib}
 \usepackage{graphicx}
 \usepackage[english]{babel}
 \usepackage{float}
+\usepackage{amsthm}
 
 \newcommand\todo[1]{\textcolor{red}{#1}}
 
@@ -36,6 +37,8 @@
 }
 
 \lstset{language=Java}
+
+\newtheorem{lemma}{Lemma}
 
 \begin{document}
 
@@ -73,14 +76,14 @@ At a high level of abstraction, these machine learning models work by ingesting 
 In order to speed the process of reading and analysing data of this size, the process is sharded between many workers. Each worker analyses a subset of the data and aggregating their results in a central model in a process called training. As additional data is received, there will be an attempt to classify them against the central model which will assign a label identifying the data. The sharding of data presents new challenges in an attempt to reduce training times and simultaneously improving the accuracy of data labelling.
 \newline
 \newline
-One of the major problems with any sharded system is the ability to handle slow workers, also known as stragglers. Many algorithms in the field of machine learning are synchronous and require the termination of all workers before proceeding to the next round of computation and are therefore limited by the slowest worker. If the effects of these stragglers were to be alleviated, it would improve the performance of the algorithm and thus complete the training phase sooner.  
+One of the major problems with any sharded system is the ability to handle slow workers, also known as stragglers. Many algorithms in the field of machine learning are synchronous and require the termination of all workers before proceeding to the next round of computation and are therefore limited by the slowest worker. If the effects of these stragglers were to be alleviated, it would improve the performance of the algorithm and thus complete the training phase sooner.
 
 \newpage
 
 \subsection{Problem Statement}
 There are currently many Machine Learning frameworks used in industry, and as with most industrial software, performance is a major concern. These frameworks are typically able to run in a distributed fashion across many workers in order to improve performance. In any distributed environment, there will be a distribution of execution run times, caused by non-deterministic factors such as kernel scheduling, network packet drops, and cache misses. In some pathological cases there will be workers who are significantly delayed compared to other worker. These workers are referred to as stragglers. Certain machine learning algorithms are dependent on the slowest workers and will block until completion of the slowest straggler.
 \newline
-Workers can be delayed for both transient reasons such as temporary network degradation or resource over subscription, but also for permanent reasons such as disk drive failures. This project will focus on mitigating the effects of transient failures. If a worker experiences a permanent failure, the larger task can either be aborted, or work can be redistributed amongst other, healthy workers. In an initial revision of Google's MapReduce \citep{dean2008mapreduce}, the authors write that "given that there is only a single master, its failure is unlikely; therefore our current implementation aborts the MapReduce computation if the master fails". A solution used by many distributed frameworks such as MapReduce and Apache Spark \cite{zaharia2012resilient} is to "re-run it on another node".
+Workers can be delayed for both transient reasons such as temporary network degradation or resource over subscription, but also for permanent reasons such as disk drive failures. This project will focus on mitigating the effects of transient failures. If a worker experiences a permanent failure, the larger task can either be aborted, or work can be redistributed amongst other, healthy workers. In an initial revision of Google's MapReduce \citep{dean2008mapreduce}, the authors write that \say{given that there is only a single master, its failure is unlikely; therefore our current implementation aborts the MapReduce computation if the master fails}. A solution used by many distributed frameworks such as MapReduce and Apache Spark \cite{zaharia2012resilient} is to \say{re-run it on another node}.
 \newline
 These solutions to permanent worker failures have been very successful and as such the problem of failing workers is solved in industry. This project will focus on temporary performance degradation of workers, especially so in an environment of limited physical resources. Forward progress will be made using the workers, however they will operate at their maximum capacity and will not impair other workers.
 \newline
@@ -100,6 +103,12 @@ The objective of this project are:
 \newpage
 
 \section{Chapter 2 - Background}
+
+\subsection{Stragglers}
+
+In the MapReduce paper \citep{dean2008mapreduce} the authors provide causes for stragglers such as \say{competition for CPU, memory, local disk, or network bandwidth}. Google's cluster management system, Borg \cite{43438} is responsible for task allocations where a pool of resources are used to distribute tasks over. In the Borg paper the authors detail how initial versions of Borg did not have sufficient sub-resource isolation. Tasks would be assigned CPU limits in response to utilisation rather than applying a limit beyond which a task could not exceed. Subsequent solutions used Linux c-group resource containers to apply limits to rate-based resources such as CPU usage, network I/O, and disk I/O. These controls do not guarantee unimpaired performance though as the paper highlights that \say{L3 cache pollution still happens}, which would cause a degradation to performance of both tasks as they cause thrashing in the processor cache.
+\newline
+If the machine learning workers were co-located alongside other short-duration CPU intensive tasks, even with the appropriate kernel-level tooling to prevent performance degradation, it is likely that performance would be affected, and the worker would become a straggler. Co-location is often used to increase the utilisation of all resources, and a solution to the problem of stragglers which accounts for co-location is more applicable in real-world uses. TODO these previous two paragraphs should be somewhere else.
 
 \subsection{Work Stealing}
 
@@ -163,7 +172,7 @@ A static method is one where resources are assigned work ahead of time, usually 
  \Input{This resource's identifier $i$}
  \Input{The number of resources $r$}
  \BlankLine
- 
+
  $j = i$\;
  \While{$j < n$}{
    $N[j] \longleftarrow N[j]*s$\;
@@ -175,9 +184,9 @@ A static method is one where resources are assigned work ahead of time, usually 
 \DecMargin{1em}
 \medskip
 
-The above algorithm is conceptually very simple, and is guaranteed to eventually multiply every element in the vector with the given scalar in the absence of resource failures. 
+The above algorithm is conceptually very simple, and is guaranteed to eventually multiply every element in the vector with the given scalar in the absence of resource failures.
 \newline
-However, under this schedule it is possible for the performance of the overall algorithm to be impacted by a single, slower resource. Although all resources operate independently the overall completion of the algorithm is dependent on the slowest result being completed. 
+However, under this schedule it is possible for the performance of the overall algorithm to be impacted by a single, slower resource. Although all resources operate independently the overall completion of the algorithm is dependent on the slowest result being completed.
 \newline
 Some optimisations may include grouping together the elements that a resource will need to access to improve cache performance, but these are inconsequential to the problem of dealing with the slowest resource.
 \newline
@@ -197,7 +206,7 @@ Continuing the above example of a scalar-vector product Algorithm \ref{DynamicSc
  \Input{The number of resources $r$}
  \Input{An integer $c$ to represent the current element being processed, and that can be incremented atomically}
  \BlankLine
- 
+
  $j = 0$\;
  \While{$(j \leftarrow c.getAndInc()) < n$}{
    $N[j] \longleftarrow N[j]*s$\;
@@ -238,7 +247,7 @@ We will instead consider an alternative solution which decouples the computation
  \Input{The number of resources $r$, $r < n$}
  \Output{The vector $N$ after a scalar-vector product with $s$}
  \BlankLine
- 
+
  $j = 0$\;
  \For{$i \gets 1$ \KwTo $r$}{
    $sendTaskToResource(i, multiply, N[j], s)$\;
@@ -267,7 +276,7 @@ The benefit of this system is that worker computations are now side-effect free 
 \newline
 Such a solution is not viable without creating side effect free tasks as if two executions of the task were to occur they could both modify the external state.
 \newline
-Consider Figure \ref{OverlappingExecution} which visualises how the overlapping of two executions could result in an incorrect result. There are solutions which account for this, however, it is much simpler to develop a solution for which this problem cannot occur. 
+Consider Figure \ref{OverlappingExecution} which visualises how the overlapping of two executions could result in an incorrect result. There are solutions which account for this, however, it is much simpler to develop a solution for which this problem cannot occur.
 
 \begin{figure}[H]
   \centering
@@ -420,9 +429,9 @@ Algorithm \ref{MultiWorkerMachineLearningAlgorithm} and Algorithm \ref{ModelUpda
 
 To implement work stealing between workers in a parameter server architecture two algorithms were developed. One of which focused on a decentralised, worker-to-worker communication model, and another using the parameter server as a central co-ordinator. In this chapter I will discuss the implementation of both algorithms as well as considerations for real world use.
 
-\subsection{Centralised Algorithm}
+\subsection{Centralised Model}
 
-The centralised approach is based upon workers sending periodic updates to the master with their current status. The interval between these updates is configurable, but through evaluation of these intervals I have found that diminishing returns occur beyond TODO intervals. Figure \ref{IntervalGraph} details that beyond TODO intervals there exists a diminishing return in the benefit of finer progress granularity. 
+The centralised approach is based upon workers sending periodic updates to the master with their current status. The interval between these updates is configurable, but through evaluation of these intervals I have found that diminishing returns occur beyond TODO intervals as can be seen in Figure \ref{IntervalGraph} which shows that there exists a diminishing return in the benefit of finer progress granularity.
 
 \begin{figure}[H]
   \centering
@@ -431,9 +440,202 @@ The centralised approach is based upon workers sending periodic updates to the m
   \label{IntervalGraph}
 \end{figure}
 
-In the MapReduce paper \citep{dean2008mapreduce} the authors provide causes for stragglers such as "a machine with a bad disk may experience frequent correctable errors that slow its read performance from 30 MB/s to 1 MB/s" and "competition for CPU, memory, local disk, or network bandwidth". In a paper analysing network failures in data centres by Microsoft Research \citep{gill2011understanding} the main cause of failures was found to be software bugs in load balancers which caused many small packets such as ACKs and keep-alives to be dropped.
+Updates to the master occur multiple times per round for each worker, and each round is usually completed within 40-80ms per worker depending on number of cores available. The diminishing returns occur due to a linear performance profile during each round for workers. In the event of a performance degradation, the cause is unlikely to be resolved within a single round. Therefore while certain rounds contain the start of a transient event that affects performance, most rounds occur in either an optimal or degraded state, and do not alter between within a single round. This can be seen on Figure \ref{RoundDegradation} which shows how transient events affect multiple rounds.
+
+
+
+Updates beyond a certain frequency simply represent no new information and simply cause to increase load on the parameter server and utilise excessive bandwidth.
 \newline
-As mentioned previously, this project will be focussing on dealing with workers experiencing transient performance degradation. In the above examples, only the resource over-subscription and network packet drops will be considered. 
+\subsubsection{Update Based Approach}
+Initially, four centralised notification exchange schemes were considered and benchmarked to determine which provided the greatest benefit against stragglers.
+
+\begin{enumerate}
+\item No updates and message sent before end of round.
+\item No updates and message sent at end of round.
+\item Updates and message sent before end of round.
+\item Updates and message sent at end of round.
+\end{enumerate}
+
+The distinction between "end of round" and "before end of round" refer to when the centralised master would send the messages indicating to workers how they would be affected by work stealing. Immediately the first approach can be ruled out as the master cannot know whether a worker is close to completing their round without updates. Such a system could have depended upon prior rounds and projecting round completion into the future, but this would be vulnerable to unexpected delays, which was the intention of the project.
+\newline
+The benefits of sending messages before the end of the round is that it allows the worker that is stealing to "pre-warm" their image buffer so that immediately upon terminating its initial batch it could process the stolen work. There is a concern with this approach that communication delays would cause the message alerting the victim of work-stealing to not execute certain tasks to arrive after they had been processed. TODO explain why this is not ideal, but won't significantly affect performance.
+\newline
+Figure \ref{RepeatedEvents} shows the number of repeated images processed across TODO rounds of training. This is a measure that should be minimised and it can be seen that \say{Updates and messages sent before end of round} achieves the lowest score in this metric. Figure \ref{EventProcessingPerformance} shows the relative performance of the various schemes in the presence of stragglers, and again say{Updates and messages sent before end of round} is shown to be the superior choice.
+\newline
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Graph showing notification schemes against number of repeated images. Lower is better.}
+  \label{RepeatedEvents}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Graph showing notification schemes against number of repeated images. Lower is better.}
+  \label{EventProcessingPerformance}
+\end{figure}
+
+\subsubsection{Centralised Algorithm for Workers}
+
+Algorithm \ref{CentralisedAlgorithmWorker} details the algorithm that the workers execute. The underlying framework in this project provides the mechanisms for message delivery between workers. Messages contain a string identifying the type of message, for example either an \say{update} message to the master, or a \say{begin} message to the workers.
+\newline
+In Algorithms \ref{CentralisedAlgorithmWorker} and \ref{CentralisedAlgorithmServer} this messaging framework will be represented using a function \say{on}. The \say{on} function takes as parameters: the message string identifier and optionally additional parameters required to process the message contents.
+\newline
+
+\IncMargin{1em}
+\begin{algorithm}[H]
+ \SetKwProg{Fn}{Function}{}{}
+ \SetKwInOut{Input}{input}\SetKwInOut{Output}{output}
+ \Input{The size of each minibatch $n$}
+ \Input{The interval to send messages $interval$}
+ \BlankLine
+ \Fn{on("beginRound", n, interval)}{
+   $stolenThisRound \longleftarrow false$\;
+   $N \longleftarrow nextMiniBatch()$\;
+   \For{$i \gets 1$ \KwTo $n$}{
+      \If{i mod interval = 0}{
+        $sendUpdateToMaster()$\;
+      }
+      $train(N[i])$\;
+   }
+   $awaitResponse()$\;
+   \If{not stolenThisRound}{
+     $sendResultToServer()$\;
+   }
+ }
+ \BlankLine
+ \BlankLine
+ \setcounter{AlgoLine}{0}
+ \BlankLine
+ \Fn{on("nack")}{
+ }
+ \BlankLine
+ \BlankLine
+ \setcounter{AlgoLine}{0}
+ \Input{The amount of work stolen $count$}
+ \BlankLine
+ \Fn{on("lose", count)}{
+   $skipImages(count)$\;
+ }
+ \BlankLine
+ \BlankLine
+ \setcounter{AlgoLine}{0}
+ \Input{The amount of work to steal $count$}
+ \Input{The offset at which to read stolen work from $offset$}
+ \BlankLine
+ \Fn{on("steal", count, offset)}{
+   $stolenThisRound \longleftarrow true$\;
+   $N \longleftarrow readImages(count, offset)$\;
+   \For{$i \gets 1$ \KwTo $count$}{
+     $train(N[i])$\;
+   }
+   $sendResultToServer()$\;
+ }
+ \caption{Centralised Algorithm executed by workers}
+ \label{CentralisedAlgorithmWorker}
+\end{algorithm}
+\DecMargin{1em}
+\medskip
+
+In Algorithm \ref{CentralisedAlgorithmWorker}, $sendUpdateToMaster()$ and $sendResultToServer()$ are simply convenience methods to communicate with the parameter server, and will not be included for clarity. The $train$ function trains the machine learning model with the specified image. $skipImages$ will skip the specified images from the end of the worker's current minibatch. A \say{steal} message will instruct the worker to read the images that another worker has been too slow to process. \say{lose} is the equivalent call to the victim of work stealing to indicate that a number of images have been lost and that they should skip them when training. \say{nack} is used to indicate that no action should be taken this round as all workers are operating at a rate similar enough that any attempt at work stealing would incur additional overhead.
+
+\subsubsection{Causality}
+It has been observed that there exists a skew amongst a set of physical clocks, that is, they were not all perfectly synchronised. The lack of synchronisation results in the inability to use physical timestamps to represent causality between events as visualised in Figure \ref{PhysicalTimestamps}.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Visualisation of how physical timestamps cannot be used to represent causality.}
+  \label{PhysicalTimestamps}
+\end{figure}
+
+In his 1978 work \say{Time, Clocks, and the Ordering of Events in a Distributed System} \cite{lamport1978time} Leslie Lamport proposed the idea of logical clocks. These would be used to represent causality because they were dependent upon changes in the state of a system, rather than the progression of time. Upon the change of state in a system the clocks would increment, and the relationship between two events as shown in Lemma \ref{LogicalOrderingLemma}.
+
+\begin{lemma}
+Given two events $a$ and $b$ where event $a$ occurred before event $b$ then the following relation holds.
+
+$a \rightarrow b \longrightarrow C(a) < C(b)$
+\label{LogicalOrderingLemma}
+\end{lemma}
+$C(a)$ is the value of the Lamport logical clock at the time that event $a$ occurred.
+\newline
+
+ Figure \ref{LogicalTimestamps} demonstrates this property and how an equivalent physical clock based system would have failed.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Visual comparison of logical and physical clocks.}
+  \label{LogicalTimestamps}
+\end{figure}
+
+In Algorithm \ref{CentralisedAlgorithmWorker} there is a call to $awaitResponse()$. This is a method which blocks execution until the worker has received either a \say{nack}, \say{lose}, or \say{steal} message and handled its body. Message delivery in this system is designed to be asynchronous, so that messages can be received and handled simultaneously. The system has also been designed so that there is a guarantee that a worker cannot receive a \say{beginRound} message until the completion of this current round. The usage of this message can be seen as an equivalent to a logical clock in that it imposes an ordering on the modification of state in the system. If a worker were to steal work it can be ensured that they would not call $sendResultToServer$ more than once per round. Figure \ref{awaitResponse} shows the necessity of such a blocking call and how the logical ordering of events is able to prevent race conditions in a way that physical clocks can not.
+\newline
+There exists an implicit Lamport logical clock which imposes a logical ordering between the sending of updates to the master and whether or not to immediately send a response to the master after the completion of training. It ensures that the $sendResultToServer$ event must occur after the instruction issued by the server by implicitly incrementing a Lamport logical clock only after a message from the server has been processed.
+\newline
+As mentioned previously, there is the potential for some images to be repeated while processing. If the server instructs a worker to skip images and the worker receives the message after beginning to process images then the will be processed twice. A variant of this algorithm which utilises a Two-Phase Commit would alleviate this problem. The server would send an initial \say{commit-request} message to workers and would receive responses indicating whether they were prepared for work stealing. The preparation would be whether the victim had not already processed the work to be stolen. Upon a successful round of responses the master would then send a \say{commit} message which would instruct the work stealing to occur. If the initial responses indicated that work stealing would not be possible this round then the master would send an \say{abort} message and no work stealing would occur.
+\newline
+This algorithm would achieve resiliency against the same image being processed multiple times, however the Two-Phase Commit is known for being a high overhead approach, and in this scenario the overhead outweighs the benefits.
+\newline
+In the current implementation of Algorithm \ref{CentralisedAlgorithmWorker} the server will send a response to workers who will steal work before they have finished their current batch. This is to achieve greater performance by pipelining the tasks that the worker will perform. While the current batch of images is being processed, new images are being read. Figure \ref{RepeatedEvents} shows that this approach has led to TODO repeated events, and has not impacted accuracy.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Explanation of how physical timestamps cannot be used to represent causality.}
+  \label{awaitResponse}
+\end{figure}
+
+\subsubsection{Centralised Algorithm for Parameter Server}
+
+The algorithm which is executed by the parameter server is primarily centred around worker co-ordination and updating the central model, and is represented by Algorithm \ref{CentralisedAlgorithmServer}.
+
+\IncMargin{1em}
+\begin{algorithm}[H]
+ \SetKwProg{Fn}{Function}{}{}
+ \SetKwInOut{Input}{input}\SetKwInOut{Output}{output}
+ \Input{The result of a worker's training $result$}
+ \BlankLine
+ \Fn{on("receiveResult", result)}{
+   $globalModel.add(result)$\;
+   $responses \longleftarrow responses + 1$\;
+   \If{$responses = numberOfWorkers$}{
+     $sendToWorkers("beginRound")$\;
+     $responses \longleftarrow 0$\;
+     $stolenThisRound \longleftarrow false$\;
+   }
+ }
+ \BlankLine
+ \BlankLine
+ \setcounter{AlgoLine}{0}
+ \BlankLine
+ \Input{The worker sending the message $worker$}
+ \Input{The latest value trained on $value$}
+ \BlankLine
+ \Fn{on("update", worker, value)}{
+   $workerProgress[worker] = value$\;
+   \If{$value > stealingThreshold \land \neg stolenThisRound$}{
+     $slowestWorker \longleftarrow determineSlowestWorker(workerProgress)$\;
+     $workToSteal \longleftarrow determineWorkToSteal(slowestWorker)$\;
+     \uIf{$workToSteal \geq minimumStealingAmount$}{
+        $send(slowest, "lose", workToSteal)$\;
+        $send(worker, "steal", workToSteal)$\;
+        $sendTo(allWorkers - slowest - worker, "nack")$\;
+        $stolenThisRound \longleftarrow true$\;
+     }
+     \Else{
+        $sendToAllWorkers("nack")$\;
+     }
+   }
+ }
+ \BlankLine
+ \caption{Centralised Algorithm executed by parameter server}
+ \label{CentralisedAlgorithmServer}
+\end{algorithm}
+\DecMargin{1em}
+\medskip
 
 \newpage
 

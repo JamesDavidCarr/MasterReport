@@ -442,7 +442,12 @@ The centralised approach is based upon workers sending periodic updates to the m
 
 Updates to the master occur multiple times per round for each worker, and each round is usually completed within 40-80ms per worker depending on number of cores available. The diminishing returns occur due to a linear performance profile during each round for workers. In the event of a performance degradation, the cause is unlikely to be resolved within a single round. Therefore while certain rounds contain the start of a transient event that affects performance, most rounds occur in either an optimal or degraded state, and do not alter between within a single round. This can be seen on Figure \ref{RoundDegradation} which shows how transient events affect multiple rounds.
 
-
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Graph showing update interval against relative performance.}
+  \label{RoundDegradation}
+\end{figure}
 
 Updates beyond a certain frequency simply represent no new information and simply cause to increase load on the parameter server and utilise excessive bandwidth.
 \newline
@@ -456,9 +461,9 @@ Initially, four centralised notification exchange schemes were considered and be
 \item Updates and message sent at end of round.
 \end{enumerate}
 
-The distinction between "end of round" and "before end of round" refer to when the centralised master would send the messages indicating to workers how they would be affected by work stealing. Immediately the first approach can be ruled out as the master cannot know whether a worker is close to completing their round without updates. Such a system could have depended upon prior rounds and projecting round completion into the future, but this would be vulnerable to unexpected delays, which was the intention of the project.
+The distinction between \say{end of round} and \say{before end of round} refer to when the centralised master would send the messages indicating to workers how they would be affected by work stealing. Immediately the first approach can be ruled out as the master cannot know whether a worker is close to completing their round without updates. Such a system could have depended upon prior rounds and projecting round completion into the future, but this would be vulnerable to unexpected delays, which was the intention of the project.
 \newline
-The benefits of sending messages before the end of the round is that it allows the worker that is stealing to "pre-warm" their image buffer so that immediately upon terminating its initial batch it could process the stolen work. There is a concern with this approach that communication delays would cause the message alerting the victim of work-stealing to not execute certain tasks to arrive after they had been processed. TODO explain why this is not ideal, but won't significantly affect performance.
+The benefits of sending messages before the end of the round is that it allows the worker that is stealing to pre-load their image buffer so that immediately upon terminating its initial batch it could process the stolen work. There is a concern with this approach that communication delays would cause the message alerting the victim of work-stealing to not execute certain tasks to arrive after they had been processed. TODO explain why this is not ideal, but won't significantly affect performance.
 \newline
 Figure \ref{RepeatedEvents} shows the number of repeated images processed across TODO rounds of training. This is a measure that should be minimised and it can be seen that \say{Updates and messages sent before end of round} achieves the lowest score in this metric. Figure \ref{EventProcessingPerformance} shows the relative performance of the various schemes in the presence of stragglers, and again say{Updates and messages sent before end of round} is shown to be the superior choice.
 \newline
@@ -612,17 +617,17 @@ The algorithm which is executed by the parameter server is primarily centred aro
  \setcounter{AlgoLine}{0}
  \BlankLine
  \Input{The worker sending the message $worker$}
- \Input{The latest value trained on $value$}
+ \Input{The latest value trained $value$}
  \BlankLine
- \Fn{on("update", worker, value)}{
-   $workerProgress[worker] = value$\;
-   \If{$value > stealingThreshold \land \neg stolenThisRound$}{
+ \Fn{on("update", worker, index)}{
+   $workerProgress[worker] = index$\;
+   \If{$index > stealingThreshold \land \neg stolenThisRound$}{
      $slowestWorker \longleftarrow determineSlowestWorker(workerProgress)$\;
-     $workToSteal \longleftarrow determineWorkToSteal(slowestWorker)$\;
+     $workToSteal \longleftarrow calculateWorkToSteal(slowestWorker)$\;
      \uIf{$workToSteal \geq minimumStealingAmount$}{
-        $send(slowest, "lose", workToSteal)$\;
+        $send(slowestWorker, "lose", workToSteal)$\;
         $send(worker, "steal", workToSteal)$\;
-        $sendTo(allWorkers - slowest - worker, "nack")$\;
+        $sendTo(allWorkers - slowestWorker - worker, "nack")$\;
         $stolenThisRound \longleftarrow true$\;
      }
      \Else{
@@ -636,6 +641,182 @@ The algorithm which is executed by the parameter server is primarily centred aro
 \end{algorithm}
 \DecMargin{1em}
 \medskip
+
+Algorithm contains some convenience methods for illustrative purposes, whose contents will not be shown for brevity. The parameter server contains a variable, $responses$ which tracks the number of worker models that the server has received in a single round. $workerProgress$ is a map with keys corresponding to the identifiers of workers, and values of the latest result received from each worker.
+\newline
+The $send$ function is used to deliver messages to the specified worker, using the second parameter as the message identifier and all remaining parameters as message contents. $sendTo$ broadcasts a message to a specified subset of all workers, and $sendToAllWorkers$ is a simple broadcast.
+\newline
+$determineSlowestWorker$ traverses the mapping pairs to determine which of the workers has the lowest associated value, indicating that the worker has made the least progress this round. $calculateWorkToSteal$
+is a function which will determine the amount of work to steal from the slowest worker, and this amount will then be evaluated to determine whether it will be time effective to steal work. The benefit of work stealing is that the overhead of exchanging work is outweighed by the time saved through slower workers having less work to process. If the amount of work that could be stolen this round is too low then it will be more effective to let all workers finish without the aide of work stealing.
+
+\subsubsection{Minimum Sufficient Work Stealing Value}
+The limit on the minimum amount of work that can be stolen at a benefit to the system is determined through the evaluation of the costs associated with work stealing. Initially a model will be built assuming that updates are not sent, and a simpler model will be developed once updates are added to the system.
+\newline
+Several per-system and per-round values are used in the generation of the model.
+$t_1$ represents the time of completion of the fastest worker.
+$t_2$ represents the time of completion of the slowest worker.
+$r_1$ represents the rate of training for the fastest worker.
+$r_2$ represents the rate of training for the slowest worker.
+$l$ is the worker-parameter server message delay time.
+$i$ is the time taken for the fastest worker to read the images stolen from the slowest worker.
+$s$ is the time taken to send the round model from a worker to the parameter server.
+$x$ is the number of images that have been stolen.
+
+We can formulate these terms into the following approximation modelling the effects of work stealing.
+\newline
+$t_1 + \frac{x}{r_1} + 2l + i + s \approx t_2 - \frac{x}{r_2} + s$
+\newline
+The $l$ in the above equation represents the cost of sending a message to the server alerting that work has finished, and then the server responding with either a $nack$ or $steal$ message.
+\newline
+If updates are used then the cost of both of those messages, as well as the cost of reading the images to be stolen, will in the average case reduce to no cost. Using updates allows the server to co-ordinate workers before they have finished their initial batches, and therefore no extra overhead results. Note that the $s$ value can also be ignored, as it is constant for both the victim of work stealing, as well as the worker stealing work.
+\newline
+The reformulated approximation to account for updates is then.
+\newline
+$t_1 + \frac{x}{r_1} \approx t_2 - \frac{x}{r_2}$
+\newline
+$t_2$ is not a fixed value as it will occur in the future and therefore a prediction of its value shall be used instead. At $t_1$ the slower worker has $m$ images left to process this round, and would have $m -x $ images left after work stealing. Therefore an estimate for $t_2$ is $t_1 + \frac{m-x}{r_2}$, using a linear regression based on the training rate achieved by the slower worker this round. As mentioned previously, the assumption used is that in the average case that workers maintain a constant training rate per round.
+\newline
+The approximation can therefore be rewritten as.
+\newline
+$t_1 + \frac{x}{r_1} \approx t_1 + \frac{m-x}{r_2} - \frac{x}{r_2}$
+\newline
+A rearrangement of this approximation to solve for $x$ leads to.
+\newline
+$x \approx \frac{r_1m}{r_2 + 2r_1}$
+\newline
+$m$ can also be approximated as the exact value at $t_1$ is not known. All workers begin each round with $I$ images to process, and using another linear regression on the training rate the following approximation can occur.
+\newline
+$m \approx I - t_1r_2$
+\newline
+Which leads to a final approximation of x.
+\newline
+$x \approx \frac{r_1(I - t_1r_2)}{r_2 + 2r_1}$
+\newline
+These values are all known by the server which allows it to make a high quality prediction for whether it would be beneficial to steal work this round. It is a deliberate choice to calculate these values on a per-round basis to provide the greatest level of dynamic work stealing, and also the overhead of such a calculation is minimal. The result of this approximation is defined as $minimumStealingAmount$ in Algorithm \ref{CentralisedAlgorithmServer}.
+
+\subsection{Decentralised Model}
+The decentralised model operates on a worker-to-worker level for arranging whether work-stealing shall occur. It uses many of the same techniques as the centralised model, but the parameter server is used solely as a store for the machine learning model.
+\newline
+The benefit of the system is that the logic for determining whether to steal work is co-located with the state responsible for tracking worker progress. The initial reasoning for the efficacy of the decentralised model was that it would attempt to reduce overhead by removing additional messages.
+
+\subsubsection{Decentralised Algorithm for Workers}
+
+Algorithm \ref{DecentralisedAlgorithmWorkerBeginRound} details how workers handle the beginning of each round. As in the centralised version workers receive a \say{beginRound} message from the server to indicate that they should commence training on the next minibatch of images.
+\newline
+Using the same technique as the centralised version, workers will send a message when they approach the final message in a batch, rather than waiting to complete the minibatch. This is done as a performance improvement, and Figure \ref{RoundDegradation} shows that transient events do not tend to affect workers on a per-round basis, which leads to the simplifying assumption that each round displays a constant training rate for each worker.
+
+\IncMargin{1em}
+\begin{algorithm}[H]
+ \SetKwProg{Fn}{Function}{}{}
+ \SetKwInOut{Input}{input}\SetKwInOut{Output}{output}
+ \Input{The size of each minibatch $n$}
+ \Input{The number of workers $w$}
+ \Input{The number of images to be processed before sending message $threshold$}
+ \BlankLine
+ \Fn{on("beginRound", n, w, threshold)}{
+   $sentRemaining \longleftarrow false$\;
+   $receivedRemaining \longleftarrow false$\;
+   $responsesOutstanding \longleftarrow w - 1$\;
+   $N \longleftarrow nextMiniBatch()$\;
+   \For{$i \gets 1$ \KwTo $n$}{
+      \If{$i = threshold \land \neg receivedRemaining$}{
+        $send("remaining")$\;
+      }
+      $train(N[i])$\;
+   }
+   \If{$\neg sentRemaining$}{
+     $sendResultToServer()$\;
+   }
+ }
+ \caption{Centralised Algorithm executed by workers}
+ \label{DecentralisedAlgorithmWorkerBeginRound}
+\end{algorithm}
+\DecMargin{1em}
+\medskip
+
+The logic to handle a minibatch is very similar to the decentralised system. If a worker reaches the threshold required to commence the work-stealing process and it has not received messages from other workers this round it will broadcast a \say{remaining} message. This broadcast will also set an internal boolean variable \say{sentRemaining}. After training completes workers will either send their models to the server if they were not the first to attempt work stealing, otherwise they will not.
+\newline
+There are guarantees imposed on further steps in the algorithm which ensure that if a worker were to send a \say{remaining} message that the local model would also be sent to the server. Thus, per round, it can be seen that all workers will send their local models, ensuring liveness in the system.
+
+\subsubsection{Minimum Sufficient Work Stealing Value}
+Similar to the centralised model there exists a minimum value for which work stealing will be beneficial. If the model in which messages are exchanged prior to round completion is considered then the resulting approximation for the number of images to steal, x,  is identical.
+\newline
+$x \approx \frac{r_1(I - t_1r_2)}{r_2 + 2r_1}$
+\newline
+Where $r_1$ and $r_2$ are the training rates of the fastest and slowest workers respectively. The slower worker, upon receiving the message will be able to determine the faster worker's rate by accounting for a slight message delay, and it will know its own rate exactly.
+
+\subsubsection{Decentralised Algorithm Work Stealing Protocol}
+
+Algorithms \ref{DecentralisedAlgorithmWorkerRemaining} and \ref{DecentralisedAlgorithmWorkerResponse} detail the two-way protocol which facilitates the stealing of work. In Algorithm \ref{DecentralisedAlgorithmWorkerBeginRound} it can be seen in which circumstances a worker will send a \say{remaining} message, which corresponds to the initial step of the work stealing protocol.
+\newline
+Upon the broadcast of the \say{remaining} message, the fastest worker awaits the arrival of a response from all other workers. This is done to impose a logical ordering on work that is stolen to ensure that a new round will not begin until all work from the previous round has completed. The remaining workers can respond with two messages types, a \say{nack} to indicate that they do not have sufficient work to steal, and a \say{remainingResponse} which instructs the fastest worker to read a number of images at a certain offset.
+\newline
+
+
+\IncMargin{1em}
+\begin{algorithm}[H]
+ \SetKwProg{Fn}{Function}{}{}
+ \SetKwInOut{Input}{input}\SetKwInOut{Output}{output}
+ \Fn{on("remaining")}{
+  \If{$receivedRemaining \lor sentRemaining$}{
+    $reply("nack")$\;
+  }
+  $receivedRemaining \longleftarrow true$\;
+  \uIf{$remainingImages > minimum$}{
+    $amount \longleftarrow determineAmountToSteal(remainingImages)$\;
+    $offset \longleftarrow calculateOffset(amount)$\;
+    $remainingImages \longleftarrow remainingImages - amount$\;
+    $skipImages(amount)$\;
+    $reply("remainingResponse", amount ,offset)$\;
+  }
+  \Else{
+    $reply("nack")$\;
+  }
+ }
+ \caption{Handle initial outgoing message from fastest worker}
+ \label{DecentralisedAlgorithmWorkerRemaining}
+ \end{algorithm}
+ \DecMargin{1em}
+ \medskip
+
+Similar to the centralised model, if a worker has at least a $minimum$ number of images remaining then it will respond with a \say{remainingResponse} message, and skip the images that will be stolen. If the minimum is not met, then a \say{nack} is sent to alert the faster worker that no work stealing shall occur.
+
+\IncMargin{1em}
+\begin{algorithm}[H]
+ \SetKwProg{Fn}{Function}{}{}
+ \SetKwInOut{Input}{input}\SetKwInOut{Output}{output}
+ \Fn{on("nack")}{
+   $reponsesOutstanding \longleftarrow responsesOutstanding - 1$\;
+   \If{$responsesOutstanding = 0$}{
+     $sendResultToServer()$\;
+   }
+ }
+ \BlankLine
+ \BlankLine
+ \setcounter{AlgoLine}{0}
+ \Input{The amount of work to steal $count$}
+ \Input{The offset at which to read images from $offset$}
+ \BlankLine
+ \Fn{on("remainingResponse", count, offset)}{
+   $reponsesOutstanding \longleftarrow responsesOutstanding - 1$\;
+   $stolenImages \longleftarrow readImages(count, offset)$\;
+   $awaitTraining()$\;
+   \For{$i \gets 1$ \KwTo $count$}{
+     $train(stolenImages[i])$\;
+   }
+   \If{$responsesOutstanding = 0$}{
+     $sendResultToServer()$\;
+   }
+ }
+ \caption{Handle possible responses from slower workers}
+ \label{DecentralisedAlgorithmWorkerResponse}
+\end{algorithm}
+\DecMargin{1em}
+\medskip
+
+It is guaranteed that the fastest worker will send its local model to the server regardless of the responses received, through the use of the \say{responsesOutstanding} internal state tracker.
+\newline
+If the fastest worker has work to steal, it will read the images at the appropriate offset and augment its local model. The function $awaitTraining()$ is used as message handling occurs concurrently with all processing. This includes if multiple work stealing messages are received and the fastest worker must train on stolen work multiple times.
 
 \newpage
 

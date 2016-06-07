@@ -2,7 +2,7 @@
 \usepackage{url}
 \usepackage{dirtytalk}
 \usepackage[margin=1.1in]{geometry}
-\usepackage[linesnumbered]{algorithm2e}
+\usepackage[linesnumbered,resetcount,algosection]{algorithm2e}
 \usepackage{listings}
 \usepackage{color}
 \usepackage[autostyle]{csquotes}
@@ -11,6 +11,7 @@
 \usepackage[english]{babel}
 \usepackage{float}
 \usepackage{amsthm}
+\usepackage{chngcntr}
 
 \newcommand\todo[1]{\textcolor{red}{#1}}
 
@@ -26,7 +27,7 @@
   showstringspaces=false,
   columns=flexible,
   basicstyle={\small\ttfamily},
-  numbers=none,
+  numbers=left,
   numberstyle=\tiny\color{gray},
   keywordstyle=\color{blue},
   commentstyle=\color{dkgreen},
@@ -39,6 +40,10 @@
 \lstset{language=Java}
 
 \newtheorem{lemma}{Lemma}
+
+\counterwithin{figure}{section}
+\counterwithin{lemma}{section}
+\AtBeginDocument{\counterwithin{lstlisting}{section}}
 
 \begin{document}
 
@@ -427,7 +432,7 @@ Algorithm \ref{MultiWorkerMachineLearningAlgorithm} and Algorithm \ref{ModelUpda
 
 \section{Work Stealing Algorithms}
 
-To implement work stealing between workers in a parameter server architecture two algorithms were developed. One of which focused on a decentralised, worker-to-worker communication model, and another using the parameter server as a central co-ordinator. In this chapter I will discuss the implementation of both algorithms as well as considerations for real world use.
+To implement work stealing between workers in a parameter server architecture two algorithms were developed. One of which focused on a decentralised, worker-to-worker communication model, and another using the parameter server as a central co-ordinator. This chapter will discuss the implementation of both algorithms as well as considerations for real world use.
 
 \subsection{Centralised Model}
 
@@ -817,6 +822,213 @@ Similar to the centralised model, if a worker has at least a $minimum$ number of
 It is guaranteed that the fastest worker will send its local model to the server regardless of the responses received, through the use of the \say{responsesOutstanding} internal state tracker.
 \newline
 If the fastest worker has work to steal, it will read the images at the appropriate offset and augment its local model. The function $awaitTraining()$ is used as message handling occurs concurrently with all processing. This includes if multiple work stealing messages are received and the fastest worker must train on stolen work multiple times.
+
+\subsubsection{Disadvantages of Decentralised Algorithm}
+A major concern for the decentralised model is the lack of co-ordination between the slower workers. When using the centralised model, it can be ensured that only a single batch of stolen work is sent to the fastest worker as well as only one worker stealing work. This section shall contain an analysis of these problems, as well as mitigations in application.
+\newline
+Message transmissions incur a physical time delay. Figure \ref{messageInterleave} visualises how multiple wokers could believe that they are the fastest worker. Based on the use of this work stealing algorithm in practise it is very common that at least two workers send \say{remaining} messages.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Explanation of how physical timestamps cannot be used to represent causality.}
+  \label{messageInterleave}
+\end{figure}
+
+The following two rules define the decentralised work stealing protocol in the event of multiple workers considering themselves to be the fastest.
+
+\begin{enumerate}
+\item No worker shall have its work stolen more than once.
+\item All work must be trained on.
+\end{enumerate}
+
+It is for this reason that Algorithm \ref{DecentralisedAlgorithmWorkerRemaining} contains the $receivedRemaining \lor sentRemaining$ statement. If a worker has already received a \say{remaining} message then it can have responded with either a \say{nack}, in which case any future messages should return \say{nack} as the number of images remaining decreases monotonically, or it will have responded with a \say{remainingResponse} in which case a \say{nack} should be returned to oblige with the first rule.
+\newline
+If message complexity is considered then the worst case is when all workers consider themselves to the fastest worker. With $n$ workers, and each worker anticipating $n-1$ responses, the message complexity would be $\mathcal{O}(n^2)$. If all workers were to operate at the same rate then this would also turn into the average case.
+\newline
+The aim is to therefore prevent all workers sending \say{remaining} messages at the same time regardless of rate of training. A solution to this is to add some randomness into the threshold value used to determine whether or not a worker should send a \say{remaining} message. It is important that such a skew is small enough to not cause stragglers to possibly report themselves as the fastest worker, and to also prevent the fastest workers from fetching work too late. The value used should also be randomly generated on a per-round basis, otherwise it may result in a single worker continuously stealing work even if another worker were further ahead.
+\newline
+A value of $0.1*miniBatchSize$ has found to be useful, and Figure \ref{skewValue} presents an analysis on the range of possible values used, including no skew.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Explanation of how physical timestamps cannot be used to represent causality.}
+  \label{skewValue}
+\end{figure}
+
+Even when using the skew value to offset workers, the worst case in terms of message complexity still remains $\mathcal{O}(n^2)$, however, the average case is now $\mathcal{O}(n)$. This represents a large decrease in the number of messages sent, and is a requirement for the model to scale well to many workers.
+
+The other main problem with the decentralised model is the possibility of many workers sending \say{remainingResponse} messages to the fastest worker. This represents the largest flaw with the decentralised model.
+
+\newpage
+
+\section{Design and Implementation}
+
+The project developed on top of two existing bodies of work: SEEP, a distributed processing platform, and Ako, a machine learning framework built on top of SEEP. The choice was made as I had experience developing with SEEP and was comfortable working with its API, and Ako was a well-structured, easily-modifiable codebase which allowed someone with little machine learning experience to make major modifications and understand the impact of those changes.
+
+\subsection{Machine Learning Framework}
+
+Other machine learning frameworks were considered, such as Google's Tensorflow, Caffe, Theano, and deeplearning4j. Major concerns were the ability to work with a distributed system, as the basis for this project was mitigating the impact of stragglers in a multi-worker environment. This meant the exclusion of Theano, and also Tensorflow as a distributed version of the framework was not released until some time after beginning the project. Of the remaining frameworks Caffe is C++ based, while deeplearning4j and Ako are Java based. Based on personal programming experience, the choice was made to develop using Java, as I have a much greater level of experience and the language constructs for the algorithms are much simpler to use in Java. This removed Caffe as an option. Ako is a simpler framework than deeplearning4j and is designed to be less general, and as a result is less complex. While this would limit its viability in a commercial setting, as a baseline from which to develop on it was a much better choice than deeplearning4j. The modified version of Ako that has been developed also makes heavy use Java 8 Lambdas to reduce boilerplate code that adds additional visual clutter.
+\newline
+\newline
+Note that no part of this project is dependent upon any features provided by SEEP or Ako, and that the algorithms presented would function just as well in any distributed framework.
+
+\subsection{Architecture}
+SEEP requires that computations are expressed as directed graphs where vertices represent tasks, and edges represent the ability for tasks to communicate. Ako on SEEP requires the following tasks:
+
+\begin{enumerate}
+\item Source for reading data
+\item Sink for emitting the results of training
+\item Parameter Server for maintaining global state
+\end{enumerate}
+
+Ako also has the ability to configure a variable number of workers to increase performance, and each worker is modelled as a separate task.
+\newline
+\newline
+SEEP tasks are represented as Java objects which implement the \textbf{SeepTask} interface. The most important methods that must be implemented in the interface are \textbf{setUp}, used as a run-time constructor, and \textbf{processData}, used to handle incoming messages. Messages in SEEP are required to conform to a schema imposed when constructing the edges in the directed graph. Schemas in SEEP are a set of key-value pairs, with keys being strings representing the name of the value, and the value being of a fixed type. Listing \ref{AkoSchema} is the schema used in Ako for inter-task communication.
+
+\begin{lstlisting}[caption={The SEEP schema used for Ako},label=AkoSchema]
+Schema schema = Schema.SchemaBuilder.getInstance()
+                .newField(Type.STRING, "task")
+                .newField(Type.BYTES, "content")
+                .build();
+}
+\end{lstlisting}
+
+The \say{task} field is used to identify the type of message, such as: \say{beginRound}, or \say{remaining}, and content is a byte array. The rigidity of the schema imposed some issues, such as requiring to convert Java integers into a byte array representation during transmission even though SEEP does contain the ability to handle integers in a schema. However, this issue was solved using the \textbf{ByteBuffer} class in Java.
+\newline
+\newline
+Figure \ref{AkoGraph} is the SEEP graph when Ako is using two workers. More workers were typically used, however the graph complexity increases quadratically with the number of workers and does not provide any more detail.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{The SEEP directed graph used by Ako with two workers}
+  \label{AkoGraph}
+\end{figure}
+
+All components message-driven\footnote{https://en.wikipedia.org/wiki/Event-driven\_architecture} and every action performed is in response to an incoming message. The control can be represented by Figure \ref{ControlFlow} showing a simplification of the relations between the Source, Parameter Server, and Workers.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Control Flow between components}
+  \label{ControlFlow}
+\end{figure}
+
+\subsection{Tasks}
+
+Each task in the SEEP graph represents some either a required SEEP construct, or a component of the machine learning program.
+
+\subsubsection{Source and Sink}
+
+SEEP requires the presence of a Source task and a Sink task, which both implement the \textbf{SeepTask} interface. The Sink in Ako is not used, as all communication exists solely between the workers and parameter server during training.
+\newline
+\newline
+In Ako, the state of the parameter server can be saved to a file, and loaded during another training run so as to not commence from a completely untrained model each time. The Source is responsible for loading the saved model from a file and sending to both the workers and parameter server.
+
+\subsubsection{Parameter Server}
+
+The Parameter Server is responsible for receiving and applying updates to the global model from workers, and also to co-ordinate the rounds of minibatches that will be processed. It's functionality is stored in the \textbf{ParamServer} class.
+\newline
+\newline
+All classes in Ako use the Java Kryo library \cite{kryo} for object serialisation and all serialised objects are represented as byte arrays to conform to the SEEP schema. After the update from the worker has been deserialised, it is used to augment the global model. Once the number of updates equals the number of workers then a round is complete, and the parameter server will send a message to alert the workers to commence a new round.
+\newline
+\newline
+In order to prevent the Parameter Server from becoming a bottleneck in the system, messages are handled concurrently. Under the original Ako codebase, the Parameter Server would process messages sequentially, however, as performance is a concern the handling was changed to be in parallel. Listing \ref{ParameterServerParallel} contains the source code for the Parameter Server model update message handler.
+
+\begin{lstlisting}[caption={Parameter Server concurrent message handling},label=ParameterServerParallel]
+executor.submit(() -> {
+	int sid = dataTuple.getStreamId();
+	byte[] bytes = dataTuple.getBytes("content");
+
+    ModelNN gradOnlyModel = useSpecificKryoToDeserialiseObject(sid, bytes);
+
+    //Apply gradient to the neural-net model in this param server
+    applyAccumGradFromAnotherModelToMainModelDirectlyWithoutResetAccum(gradOnlyModel);
+    counter.incrementAndGet();
+
+    if (counter.compareAndSet(numReplica, 0)) {
+        //Extract only the weight from the current neural-net model state
+        ModelNN weightOnlyModel = ModelNN.produceModelNNWithWeightParameterPartOnly(getCurrentModelNNInstance());
+
+        byte[] weightOnlyModel_bytes = useSpecificKryoToSerialiseObject(sid, weightOnlyModel);
+
+        byte[] newGlobalModel = OTuple.create(schema,
+                new String[]{"task", "content"},
+                new Object[]{BEGIN_ROUND, weightOnlyModel_bytes});
+
+        for (int i : rep_sids) {
+            api.sendToStreamId(i, newGlobalModel);
+        }
+        round++;
+    }
+});
+\end{lstlisting}
+
+The executor variable is a Java ExecutorService, a concurrency object in which tasks can be submitted and executed in a pool of threads. The thread pool used contains the same number of threads as the number of workers. With a very large number of workers this option would cause degraded performance as the amount of work would exceed the resources available, however it scales well up to the number of cores in a machine.
+\newline
+\newline
+This code block is located within the method responsible for handling incoming messages. In Java method parameters are thread local, meaning that each thread will receive its own copy. The \say{dataTuple} parameter referenced above is the parameter containing the message contents, but it can be safely passed to another thread in the ExecutorService because no other thread could have a reference to it. The code block also makes heavy use of the Java AtomicInteger object type. This is a thread-safe atomically incrementable integer which allows for low-overhead synchronisation and the ability to track the number of responses received from workers. The AtomicInteger in this case also ensures that all local updates have taken place before sending a \say{BEGIN\_ROUND} message, preventing the case where workers do not receive the freshest copy of the global state at the beginning of a round.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=2.5in]{parameterserveruml}
+  \caption[]{UML diagram of the parameter server class}
+  \label{ParameterServerUML}
+\end{figure}
+
+\subsubsection{Worker}
+
+The workers are responsible for processing of images, augmenting their local models, and after finishing a minibatch, to send them to the parameter server. The workers were initially designed to only handle one type of message per round, so a significant effort was made to convert the system into an asynchronous model. This applies to both the centralised and decentralised models, as both have message types to respond to while training.
+\newline
+\newline
+Workers make heavy use of Java concurrency primitives to ensure thread safety and no data races. Languages such as Rust are able to remove the possibility of data races with the compiler, and this would have been an incredibly useful aide during programming as subtle bugs were common. Java contains a concurrency tool \textbf{Future} which represents the result of an asynchronous computation. It was used to ensure that a single worker would not block on the loading of images that it had stolen. The \textit{synchronized} keyword also made reasoning about control flow much easier as it guarantees that for a single instantiation of an object that a certain method cannot be called concurrently with any other thread. An ideal use case for this was the \textbf{train()} method, where training on stolen work should be delayed until the initial training is complete, but should also execute as soon after as possible.
+\newline
+\newline
+Advice for concurrent programming is to avoid mutable and global state. If the messages being passed around contain all that is needed to execute the algorithm then there is no chance of data races. Unfortunately, in order for the message size to not have a significantly adverse affect on performance, they can only contain references and not values. Global state is also required as the messaging framework provided by SEEP is simply a method call, and Java object fields are required to store state between messages. The problem domain is also one that requires mutable state. The models are too large to simply create a new, immutable version on every update, and doing so would impose a heavy performance penalty for creating and garbage collecting so many objects.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=3in]{workeruml}
+  \caption[]{UML diagram of the worker class}
+  \label{WorkerUML}
+\end{figure}
+
+\newpage
+
+\section{Evaluation}
+
+The primary objective of this project was to determine whether an algorithm could be developed that would mitigate the impact of stragglers in a machine learning framework. The objective metric is therefore a comparison in the rate of progress that is made when stragglers are present with and without the use of work stealing. In order for the approach to be valid, the accuracy of the machine learning model must not be negatively affected by work stealing.
+\newline
+\newline
+There are several different parameters that can effect the efficacy of work stealing, and evaluations will vary these parameters to determine their effect.
+
+\begin{enumerate}
+\item Number of workers
+\item Number of cores per worker
+\item Number of stragglers
+\item Minibatch size
+\item Centralised vs Decentralised algorithm
+\end{enumerate}
+
+In order to provide consistent results, stragglers will be created by either using less powerful machines that  take longer to train per round, or by introducing a CPU-intensive workload intermittently on an equally powerful machine.
+
+\subsection{Expected Results}
+Prior to running any evaluation experiments, hypotheses will be made, and the objective results will validate or reject these hypotheses.
+
+\begin{enumerate}
+\item More workers decreases training time, but at a sub-linear rate.
+\item Increased cores will improve performance per worker at a linear rate.
+\item The number of stragglers will severely impact the efficacy of the algorithms.
+\item A larger minibatch size will correlate well with algorithm efficacy, but will result in worse accuracy.
+\item The Centralised algorithm will scale better than the Decentralised.
+\end{enumerate}
+
+\newpage
+
+\section{Conclusions and Future Work}
 
 \newpage
 

@@ -321,7 +321,7 @@ For image processing, feature extraction can involve resizing the image so that 
 The MNIST dataset is a collection of handwritten digits, known as the ``Hello World'' of machine learning. It consists of 60,000 training examples and 10,000 testing examples, which are all accurately labelled. This project will be using the MNIST dataset in the evaluation of a work stealing algorithm.
 \newline
 \subsection{Handwriting Recognition}
-\subsection{Parameter Server Architecture}
+\subsection{Parameter Server Architecture} \label{paramserver}
 This project will investigate the effects of work stealing in a distributed machine learning framework. The advantage of a distributed framework are decreased training time, redundancy in the event of a single machine failing, and allowing training to occur on datasets that cannot fit on a single machine.
 \newline
 \newline
@@ -1006,11 +1006,10 @@ The primary objective of this project was to determine whether an algorithm coul
 There are several different parameters that can effect the efficacy of work stealing, and evaluations will vary these parameters to determine their effect.
 
 \begin{enumerate}
+\item Work stealing threshold
 \item Number of workers
-\item Number of cores per worker
 \item Number of stragglers
 \item Minibatch size
-\item Centralised vs Decentralised algorithm
 \end{enumerate}
 
 In order to provide consistent results, stragglers will be created by either using less powerful machines that  take longer to train per round, or by introducing a CPU-intensive workload intermittently on an equally powerful machine.
@@ -1023,12 +1022,260 @@ Prior to running any evaluation experiments, hypotheses will be made, and the ob
 \item Increased cores will improve performance per worker at a linear rate.
 \item The number of stragglers will severely impact the efficacy of the algorithms.
 \item A larger minibatch size will correlate well with algorithm efficacy, but will result in worse accuracy.
-\item The Centralised algorithm will scale better than the Decentralised.
+\item The Decentralised algorithm will scale better than the Centralised.
 \end{enumerate}
+
+I believe that more workers will improve at a sub-linear rate because of communication overheads where the master will become a source of congestion. As discussed previously, in larger machine learning frameworks the parameters are sharded over many servers. This horizontal scaling allows for the number of workers to increase beyond the capacity of a single parameter server.
+\newline
+\newline
+The centralised algorithm should theoretically handle a greater number of stragglers than the decentralised algorithm. This is because a central point of co-ordination would allow for a more even spreading of work through a single node being able to assign stolen work to multiple workers better than those same workers could arrange by themselves.
+\newline
+\newline
+The size of each minibatch is a compromise between accuracy and training rate. If workers were to resynchronise after each image trained then the runtime would be dominated by communications between workers. Conversely, if all workers were assigned a single minibatch then model updates would only occur after all data had been trained on. We wish for each worker to have seen as much data as possible before training on a new data item, resynchronising very infrequently reduces the amount of data a worker has seen for most items in a large minibatch.
+There are overheads when using work stealing: the time spent fetching images, the time spent exchanging messages, and the potential for the centralised model to train on an image twice. Work stealing messages are proportional to the number of minibatches, so a larger minibatch size would cause less overhead taken by work stealing.
+However, the absolute metric that should be evaluated is model accuracy, and increased performance is rarely a more desirable metric.
+\newline
+\newline
+The centralised model is dependent upon the parameter server handling all messages. Reading each message causes a time delay imposed by the SEEP platform. At a greater number of workers it may result in the parameter server's main functionality being delayed while work stealing messages are handled. The number of messages received per round for the parameter server is $\mathcal{O}(nm)$, where $n$ is the number of workers, and $m$ the update interval. Conversely, in the decentralised model the number of messages received per round for the fastest worker is only $\mathcal{O}(n)$. At larger values of $n$ this difference will result in a significant increase in message volume for the parameter server.
+
+\subsection{Machine Learning Accuracy}
+An expected result was that a greater number of machines that the accuracy would be lower after a give number of epochs. This is due to the greater synchronisation delays where the rate of propagation is inversely proportional to the number of workers. TODO add citation. Conversely, the time taken to train on a single epoch is inversely proportional to the number of workers as fewer images per worker must be processed by each worker. The data collected on epoch duration was not collected in any of the experiments as it was not related to the objective of this project. TODO try and find out when it's not worth having more workers.
+\newline
+\newline
+Unless specified otherwise, workers trained with minibatch sizes of 25. The larger the size of the minibatch, the longer between worker synchronisations, which leads to a worsened accuracy. 25 was chosen as it provided a good compromise between: amount of work stolen, accuracy, and message volume. An evaluation of differing sizes of minibatch is provided later.
+\newline
+\newline
+All workers began training with a model saved from a previous training session. This offers no performance benefits against starting from a completely untrained model, but allowed insight into how workers performed at the later stages of training where differing levels of accuracy would severely impact the result of testing.
+\newline
+\newline
+All experiments were analysed over 10 epochs of training. This limit was placed so that all workers would be compared after having seen the exact same amount of training data. This also ensured sufficient data points to allow for accurate measurements to be performed. In the worst case of 8 workers with 100 images per minibatch, there would be $60000/(8*100) = 75$ rounds per epoch, and with 10 epochs this would provide 750 data points.
+\newline
+\newline
+The MNIST dataset contains 60,000 training images and labels, and 10,000 testing images and labels. Accuracy was measured by counting the number of correctly classified images in the testing dataset as a percentage of all images.
+
+\subsection{Testing Environment}
+All experiments were run on Amazon Web Services (AWS), a public cloud computing environment offered by Amazon.com. AWS allows customers to rent virtual servers at a range of price and performance levels. In this evaluation, all virtual servers were co-located within the same data centre, with a round-trip time of below a millisecond when using the \textit{ping} utility. There were two levels of workers, \say{healthy} workers with 16 cores of compute, and \say{stragglers}, a weaker class of server with only 4 cores of compute. The motivation for using two classes of compute was to provide a fair level of comparison between experiments. It is unlikely in industrial use for two types of machine which differ so greatly in performance to be used in the same machine learning environment. In order to provide a fair comparison between two different experiments though, it was necessary to control for straggler performance, an infamously non-deterministic factor. An evaluation with intermittent stragglers will be discussed in a later section.
+
+\subsection{Number of workers}
+The first set of experiments ran was to evaluate the impact of varying numbers of workers, and the impact of work stealing at different scales. The experiments varied over 2, 4, and 8 workers with at most a single straggler. The fastest time per round, slowest time per round, and best accuracy amongst all workers were measured. No work stealing, the centralised work stealing algorithm, and the decentralised work stealing algorithm were all compared.
+\newline
+\newline
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{FastestSingle}
+  \caption[]{Fastest Time per Round - Single Straggler}
+  \label{FastestSingle}
+\end{figure}
+
+Figure \ref{FastestSingle} shows the fastest time per round against the number of workers and work stealing algorithm used. The range between fastest and slowest measurements varies by 1.5ms. In the experiments I found that the centralised algorithm tended to be less balanced amongst workers, whereas the decentralised version spread the work stealing well across workers. This would explain why the fastest workers in the centralised version were faster than those in the decentralised, as they would routinely not steal work and thus wouldn't have the round times affected.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{SlowestSingle}
+  \caption[]{Slowest Time per Round - Single Straggler}
+  \label{SlowestSingle}
+\end{figure}
+
+Figure \ref{SlowestSingle} shows the impact of work stealing. The slowest time per round is the limiting factor regarding training rate. By stealing work, the straggler has less to do, and therefore will complete sooner. It can be seen that the decentralised algorithm was able to provide the fastest times for the slowest worker, indicating that it was the most effective algorithm. The drop at 4 workers for the decentralised algorithm was not anticipated and likely was the result of improved networking conditions at the time of evaluation.
+\newline
+\newline
+\newline
+The most important metric to evaluate was model accuracy. If this was impacted by work stealing, then the costs would outweigh the benefits. Figure \ref{AccuracySingle} shows the average accuracy across all workers after 10 epochs. It can be seen that work stealing provides a slight improvement. This was an unexpected result, and after further evaluation of the averages it was found that the workers that had stolen work had higher accuracies than when they did not steal work. This can be attributed to accuracy being a function of images read, and that with work stealing, more images were read than. The slowest worker conversely had a lower accuracy, but this was outweighed by the improvements to the faster workers.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{AccuracySingle}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{AccuracySingle}
+\end{figure}
+
+It should be noted that the improvements to accuracy were at most 0.90\%. In a subsequent experiment where the accuracy was measured after 60 epochs, it was found that the difference in accuracy would reduce to a negligible amount of below 0.10\%.
+
+\subsection{Work Stealing Threshold}
+The centralised and decentralised algorithms both use an equation to determine the ideal number of images to steal based on: rate of fastest worker, rate of slowest worker and network delays. The result of this equation is then compared to a threshold to determine if work stealing should occur. The motivation of this threshold was to prevent many small work stealings, as it was perceived that stealing a single image would result in a net decrease to training rate.
+\newline
+\newline
+Both work stealing algorithms were run to 10 epochs with thresholds ranging from 0.0 to 0.5 with an interval of 0.1 as a proportion of the size of each minibatch. An upper limit of 0.5 was used as it can be seen in the data that the majority of work to steal was smaller than 0.5 times the minibatch size. By not stealing this work, the algorithms were less effective, and came close to the performance levels of no work stealing.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{FastestThresholdDecentralised}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{FastestThresholdDecentralised}
+\end{figure}
+
+Figure \ref{FastestThresholdDecentralised} shows that most of the images stolen when 4 and 8 workers are used are smaller than 20\% of the minibatch size, whereas for 2 workers most are smaller than 0.40\%. This discrepancy was found to be caused by message processing overhead. With only two workers each worker is able to respond to messages more quickly as there are fewer to process per round. This means that by the time a worker sends a \say{remaining} message they will have fewer images processed, and thus can lose more.
+\newline
+\newline
+If a worker has reached the threshold of work to send a \say{remaining} message and another worker has not completed a single image, the equation to determine the amount of work to steal will give at most half the size of the minibatch to the faster worker. This explains why at threshold = 0.5 the results are similar to those when no work stealing occurs. An improvement to the equation would be to handle this case better and ensure that the faster worker receives more than half, however this case was not encountered during training.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{SlowestThresholdDecentralised}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{SlowestThresholdDecentralised}
+\end{figure}
+
+Figure \ref{SlowestThresholdDecentralised} shows slightly different results than Figure \ref{FastestThresholdDecentralised}. It appears that the slowest worker is only affected when threshold = 0.4 for worker counts. However, it was seen above that with 4 and 8 workers the significant threshold value was 0.2. The most probable cause was that there was some work stealing amongst the faster workers, although of much smaller amounts than with the straggler. By increasing the threshold to above these values the faster workers would not steal work amongst each other, only with the straggler. Note that progress is determined by the slowest worker and even with stealing amongst the faster workers the slower worker was not impacted.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{FastestThresholdCentralised}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{FastestThresholdCentralised}
+\end{figure}
+
+Figure \ref{FastestThresholdCentralised} confirms the evaluation of the results in Figure  \ref{SlowestThresholdDecentralised}. The centralised master prevents the healthy workers from work stealing from each other, and therefore the size of the work stolen will only be that of the straggling worker, at around 40\% of the minibatch size. The dropoff seen with the threshold at 0.3 is most prominent with higher worker counts. This is likely due to the parameter server being saturated with messages and causing delays to the work stealing messages.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{SlowestThresholdCentralised}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{SlowestThresholdCentralised}
+\end{figure}
+
+Figure \ref{SlowestThresholdCentralised} shows a very similar profile to the decentralised equivalent, confirming that the majority of work stolen from the straggler is smaller than 40\% of the minibatch size.
+
+\subsection{Number of stragglers}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{FastestStragglerDecentralised}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{FastestStragglerDecentralised}
+\end{figure}
+
+Increasing the proportion of straggling workers should increase the time of the fastest worker per round. This increase was due to each worker likely stealing many items of work. The impact of adding a second straggler can be seen clearly in the case with 4 workers, where there is a significant increase in the fastest worker's time per round. Two stragglers leaves results in the fastest worker having to complete two batches of work, significantly increasing its time per round. The fastest worker would alternate between the two healthy workers, and their average time per round would be therefore greater.
+\newline
+\newline
+The increase in 8 workers was greater than anticipated. It was likely caused to communications overhead when deciding which workers to steal from. The fastest worker receives $\mathcal{O}(n)$ messages from the remaining $n$ workers which will add additional overhead.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{SlowestStragglerDecentralised}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{SlowestStragglerDecentralised}
+\end{figure}
+
+An expected result in that the slowest worker would see a drastic increase between the presence and absence of stragglers. The increase from 25\% to 50\% was small but unanticipated.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{FastestStragglerCentralised}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{FastestStragglerCentralised}
+\end{figure}
+
+Figure \ref{FastestStragglerCentralised} results were not in line with expectations. The centralised version ensures that only one work stealing occurs per round. An assumption was that over time that the probability that any worker would be the work stealing worker would be $1/n$ with $n$ healthy workers. Since each worker was to steal only a single batch of work with a larger number of healthy workers each should have spent fewer rounds being the work stealing worker, and thus the cost of work stealing would be more greatly amortised. However, with 25\% stragglers 4 workers had a lower fastest time than 8 workers.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{SlowestStragglerCentralised}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{SlowestStragglerCentralised}
+\end{figure}
+
+It is useful to compare Figure \ref{SlowestStragglerCentralised} against its decentralised equivalent, Figure \ref{SlowestStragglerDecentralised}. It can be seen that the fastest time per round is lower than the decentralised equivalent. This is evidence that the work stealing is less evenly spread, and when combined with less work being stolen per round it results in a greater difference between the fastest worker and the slowest worker. This result implies that the centralised work stealing model is less effective than the decentralised.
+
+\subsection{Minibatch size}
+
+When attempting to compare minibatch size as a parameter, the aim was to show that the impact of work stealing is greater when larger minibatch sizes are used. Note that there is no value for 8 workers with a minibatch size of 10 for either of the algorithms. SEEP uses a single buffer to store messages that will be sent over a connection, and if a message is written to the buffer before another has been sent then SEEP will terminate. SEEP offers the ability to control the number of threads reading from and writing to the network, and in most of the other experiments setting 32 threads was sufficient, in this situation it wasn't. Even after setting to 128 threads the issues were not resolved. SEEP uses TCP connections, and perhaps with a lower overhead connection such as RDMA the time taken to drain the buffer to the network would be reduced and therefore no collisions would occur.
+\newline
+\newline
+When comparing the time per round for the fastest worker it can be seen that both forms of work stealing increase the value, indicating that work stealing is occurring. However, the increase caused by the centralised algorithm is smaller than that of the decentralised, in line with expectations that the centralised version is less effective.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{FastestMinibatchNo}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{FastestMinibatchNo}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{FastestMinibatchDecentralised}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{FastestMinibatchDecentralised}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{FastestMinibatchCentralised}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{FastestMinibatchCentralised}
+\end{figure}
+
+When comparing the run times of the straggler a confirmation of the results for the fastest worker can also be seen. The decentralised version decreases the run time of the slowest worker more than the centralised algorithm does. The difference between the two algorithms varies from 11\% at with 10 images per round, and 25\% with 100 images per round.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{SlowestMinibatchNo}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{SlowestMinibatchNo}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{SlowestMinibatchDecentralised}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{SlowestMinibatchDecentralised}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{SlowestMinibatchCentralised}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{SlowestMinibatchCentralised}
+\end{figure}
+
+\subsection{Intermittent Work Stealing}
+
+The above examples have all used a single straggler of a lower compute capacity than the remainder of all workers. This is unlike most machine learning environments which consist of a homogeneous collection of machines. The algorithms presented for work stealing are stateless between rounds, meaning that they should improve performance regardless of whether has been degraded for a single round, or for a prolonged period.
+\newline
+\newline
+To evaluate this an alternate environment was used with all workers having equal performance. Training used 8 workers and a minibatch size of 25, the work stealing algorithm used a threshold of 0 images. The aim was to replicate a typical production environment used and to show that work stealing was an effective solution to intermittent load. A single worker was chosen to represent an intermittent straggler. The \textit{stress} command utility was used. It allows for a compute intensive task to be run with a variable intensity. For the 16 core machine, the task was set to saturate 8 cores thus rendering them unavailable to the machine learning framework and decreasing the worker's training rate. The comparison was performed with no work stealing and the decentralised work stealing algorithm across 1420 rounds, and the average run duration over intervals of 10 rounds was measured.
+
+ \begin{figure}[H]
+  \centering
+  \includegraphics[width=6in]{DecentralisedVsNo}
+  \caption[]{Average Accuracy after 10 epochs - Single Straggler}
+  \label{DecentralisedVsNo}
+\end{figure}
+
+Figure \ref{DecentralisedVsNo} shows the impact of work stealing. Note that the \textit{stress} utility was called intermittently which is why the peaks do not align. The clear result is that even with an degraded compute performance the work stealing algorithm allowed the straggler to complete each round within a smaller amount of time. As the system is bounded by the slowest worker, this shows that work stealing aides in mitigating the impact of stragglers on the overall training rate.
+\newline
+\newline
+The reason for the higher \say{average} round completion time for the straggler is that it was stealing work from other workers. This is a point that will be discussed in the Future Work section.
 
 \newpage
 
 \section{Conclusions and Future Work}
+
+At a high level of evaluation the project was a success in that the work stealing algorithms were able to mitigate the effect of stragglers. The two algorithms presented were able to mitigate one of the most common occurrences in any large-scale system, a distribution of task durations. The algorithms also did not impair the accuracy of the trained models, which was the most important objective. The use of normalisation allowed workers to process different amounts of data without affecting the global model accuracy. An evaluation on the MNIST dataset demonstrates that the solution can be applied to industrial models. 
+\newline
+\newline
+The variation in average run times between the fastest and slowest workers even when using the algorithms is evidence that there is still room for improvement. With a better modelling of the costs associated with work stealing it may be possible to reduce this variation to a negligible amount, a value which represents the best possible training rate achievable in such a scenario.
+\newline
+\newline
+As discussed in Section \ref{paramserver} there are different synchronisation schemes in a machine learning environment. This project has focussed on the most-heavily restricted, Bulk Synchronous Parallel (BSP) where workers cannot diverge by more than a single round. In order to mitigate the effects of stragglers, alternate schemes such as Bounded Staleness, in which workers may diverge by more than a single round, have been used. If work stealing is able to function under the restrictions of BSP then it is also able to function under Bounded Staleness, and in fact would perform better as the size of each work stealing would be at least the size of those possible under BSP. Furthermore, if work stealing could be improved to the point of aligning the round completion times of all workers, then the need for Bounded Staleness could be removed. Due to the more frequent synchronisations between workers under BSP, it has a higher accuracy after a given number of rounds, the tradeoff being that the time per round is greater than that of Bounded Staleness. But with work stealing this would no longer be true, and thus a greater accuracy could be achieved in less time.
+
+\subsection{Extensions}
+
+There are several possible extensions for the project, the majority of which focus on improving performance, and the ability to scale to larger numbers of nodes.
+\newline
+\newline
+\textbf{Optimal Work Stealing Equation}		The current equation used to determine the amount of work to steal offers a significant performance improvement over no work stolen. However, the discrepancy between the fastest and slowest workers is evidence that there is room for improvement. A more accurate model which could account for the irregular traffic patters caused by the bursty nature of the communications would allow for a reduction in the variation between fastest and slowest worker.
+\newline
+\newline
+\textbf{Evaluation in a more controlled environment}		All of the experiments ran used Amazon's public cloud offering. This represents a typical environment used in machine learning in industry, however to achieve optimal performance it would have been beneficial to evaluate the algorithms within an environment with fewer variables. Amazon's servers are virtual servers running on physical hardware, which imposes a compute penalty. There is also no guarantee that workers are placed as physically close to each other as possible, an important concern in networking performance. It would have also been useful to evaluate in an environment with advanced technologies such as RDMA could have been used in place of unoptimised protocols such as TCP.
+\newline
+\newline
+\textbf{Skew between workers}	One concern with the decentralised algorithm is that in the event that many workers were to reach the message sending limit at the same time that there would be many additional messages, which did not need to be sent, exchanged between workers. This did not prove to be too much of a concern in the average case, but it was an possibility that could be mitigated. Each worker would have its own local skew, computed randomly in each round, which would allow the work stealing limit to range between workers. When sending the \say{remaining} message, workers would include the skew, which would be used in the work stealing equation, and through the random value the likelihood that two workers operating at the same rate would send each other \say{remaining} messages would decrease.
+\newline
+\newline
+\textbf{Bounded Staleness}		Although one of the conclusions of the project was that the need for Bounded Staleness may be removed when using work stealing, it would have been a useful evaluation to compare the performance of the work stealing algorithms with both Bulk Synchronous Parallel and Bounded Staleness synchronisation schemes.	
+
 
 \newpage
 

@@ -11,6 +11,7 @@
 \usepackage[english]{babel}
 \usepackage{float}
 \usepackage{amsthm}
+\usepackage{amsmath}
 \usepackage{chngcntr}
 
 \newcommand\todo[1]{\textcolor{red}{#1}}
@@ -58,62 +59,40 @@ Machine learning methods require many workers, all of whom iteratively analyse a
 
 \newpage
 
-\section{Chapter 1 - Introduction}
+\section{Introduction}
 
 \subsection{Motivation}
 
-The volume of data produced per year is increasing exponentially through social media, embedded Internet of Things sensors, and even financial records. Analysis of this data is incredibly valuable to the data owners: email services can better detect spam, banks can monitor for fraud, and cities can be managed more efficiently.
+The volume of data produced per year is increasing exponentially as new data sources are developed and existing sources increase the quantity of data collected. A report by the Harvard Business Review estimated that amount of data collected every day doubles every 40 months \cite{hbrBigData}. Sources such as social media, email, and financial records are all being collected and aggregated by large technology companies including Facebook, Google, and Visa. The value of the collected data is the ability to offer a secondary product or service using the insight that only companies with access to such large volumes of data can provide.
 \newline
 \newline
-In a report by The Department for Business Innovation and Skills\cite{smartCities}, it was estimated that the \say{global market for smart urban systems for transport, energy,
-healthcare, water and waste will amount to around \$400 Billion pa. by 2020}. Through more intelligent city management and improved data collection \say{we can manage cities more effectively} and \say{anticipate and solve problems more cost effectively}.
+Google runs the world's largest online advertising service, and in financial reports for its parent company, Alphabet, reveal that 90\% of operating income is through advertising revenues \cite{alphabetFinancials}. In a self published article \cite{googleTrends2014} Google reported that it had processed trillions of searches in 2014. Rajat Taneja, Executive Vice President of Technology at Visa published an article \cite{visaMachineLearning} discussing the volume of transactions that were processed at 56,000 per second.
 \newline
 \newline
-In order to achieve these goals of cost effective and efficient public services the data collected must be analysed. Through machine learning techniques, automated systems can ensure continuous monitoring of services such as traffic and crime, and anticipate future events based on past data.
+Converting data into commercial insight requires the use of analysis where trends that can be capitalised on are detected. The volume of data requires that only automated solutions are feasible, and the field of machine learning has been developed as a result. At the highest level of abstraction the role of machine learning is to provide a mapping from input data to a label. These labels could include whether or not an email is spam, or the contents of an image, or if a credit card transaction is fraudulent. The greater the volume of input data, the more accurate this mapping can be, which in turns incentives data owners to collect more data. This mapping is generated in a process called training, which will discussed further in Section \ref{supervised}.
 \newline
 \newline
-Machine learning on large data sets has been common in the private sector for some while now. Google use emails to detect and prevent spam, Amazon recommend products to purchase based on a customer's history and other customers making similar purchases, and Facebook use facial recognition software to automatically ``tag'' friends in photos.
+The initial process of ingesting the data however can be incredibly time consuming, Facebook reported in 2010\cite{facebookHaystack} that they stored 260 billion images representing over 20PB of data. No single machine is suitable, the data is sharded over many smaller machines. Each machine is responsible for a subset of all data, and will train over its subset, and workers will aggregate their mappings into a single global mapping, which will be used in commercial offerings. The advantage of sharding the data is that it allows for significantly lower times to train on all data, as each machine may train independently of all others.
 \newline
 \newline
-At a high level of abstraction, these machine learning models work by ingesting large volumes of data, detecting patterns, and then mapping further inputs to outputs. For example, when a picture containing a face is uploaded to Facebook they will attempt to map it to users they believe to be in the picture. The initial process of ingesting the data however can be incredibly time consuming, Facebook reported in 2010\cite{facebookHaystack} that they stored 260 billion images representing over 20PB of data.
+One of the major problems with any distributed system is the variance in task durations. The time taken to train on a piece of data is influenced by many factors including hardware performance, networking conditions, and software non-determinism. Machines that are significantly slower than the average are known as stragglers. Machine performance can be degraded for both transient reasons, but also permanently, such as if a disk drive fails. In these permanent cases the only option is to simply train the same data on another machine. This solution is used by both Google's MapReduce framework  \citep{dean2008mapreduce} and Apache Spark \cite{zaharia2012resilient}. These solutions have been very successful, and as such the problem of permanent machine failure is solved. 
 \newline
 \newline
-In order to speed the process of reading and analysing data of this size, the process is sharded between many workers. Each worker analyses a subset of the data and aggregating their results in a central model in a process called training. As additional data is received, there will be an attempt to classify them against the central model which will assign a label identifying the data. The sharding of data presents new challenges in an attempt to reduce training times and simultaneously improving the accuracy of data labelling.
+In most machine learning algorithms performance is determined by the slowest worker, and these stragglers severely impact the rate of training. If the effects of these stragglers were to be mitigated then the overall training rate would improve, allowing for a reduced time to use a mapping in a production environment. It is important that any attempt at improving the performance of a machine learning algorithm does not negatively impact the accuracy of the mapping provided as correctness is the primary objective, with performance improvements being secondary.
 \newline
 \newline
-One of the major problems with any sharded system is the ability to handle slow workers, also known as stragglers. Many algorithms in the field of machine learning are synchronous and require the termination of all workers before proceeding to the next round of computation and are therefore limited by the slowest worker. If the effects of these stragglers were to be alleviated, it would improve the performance of the algorithm and thus complete the training phase sooner.
+The contributions of this project are two algorithms for the mitigation of the effects of stragglers. A centralised variant, and a decentralised. An evaluation of the performance of these algorithms in a range of environments is included.
 
 \newpage
 
-\subsection{Problem Statement}
-There are currently many Machine Learning frameworks used in industry, and as with most industrial software, performance is a major concern. These frameworks are typically able to run in a distributed fashion across many workers in order to improve performance. In any distributed environment, there will be a distribution of execution run times, caused by non-deterministic factors such as kernel scheduling, network packet drops, and cache misses. In some pathological cases there will be workers who are significantly delayed compared to other worker. These workers are referred to as stragglers. Certain machine learning algorithms are dependent on the slowest workers and will block until completion of the slowest straggler.
-\newline
-Workers can be delayed for both transient reasons such as temporary network degradation or resource over subscription, but also for permanent reasons such as disk drive failures. This project will focus on mitigating the effects of transient failures. If a worker experiences a permanent failure, the larger task can either be aborted, or work can be redistributed amongst other, healthy workers. In an initial revision of Google's MapReduce \citep{dean2008mapreduce}, the authors write that \say{given that there is only a single master, its failure is unlikely; therefore our current implementation aborts the MapReduce computation if the master fails}. A solution used by many distributed frameworks such as MapReduce and Apache Spark \cite{zaharia2012resilient} is to \say{re-run it on another node}.
-\newline
-These solutions to permanent worker failures have been very successful and as such the problem of failing workers is solved in industry. This project will focus on temporary performance degradation of workers, especially so in an environment of limited physical resources. Forward progress will be made using the workers, however they will operate at their maximum capacity and will not impair other workers.
-\newline
-The aim of this project is to develop and evaluate algorithms to mitigate the effects of these slowest stragglers through the use of work-stealing. We also aim to develop such an algorithm that does not negatively affect the accuracy of the system, as this is the primary objective, with performance being secondary.
-
-\newpage
-
-\subsection{Objective}
-The objective of this project are:
-
-\begin{enumerate}
-\item Evaluate the performance improvements through the use of dynamically scheduled threads rather than statically scheduled.
-\item Develop a centralised and decentralised algorithm so that faster workers may steal work from slower workers.
-\item Demonstrate the effect of these two algorithms in both the presence and absence of stragglers.
-\end{enumerate}
-
-\newpage
-
-\section{Chapter 2 - Background}
+\section{Background}
 
 \subsection{Stragglers}
 
 In the MapReduce paper \citep{dean2008mapreduce} the authors provide causes for stragglers such as \say{competition for CPU, memory, local disk, or network bandwidth}. Google's cluster management system, Borg \cite{43438} is responsible for task allocations where a pool of resources are used to distribute tasks over. In the Borg paper the authors detail how initial versions of Borg did not have sufficient sub-resource isolation. Tasks would be assigned CPU limits in response to utilisation rather than applying a limit beyond which a task could not exceed. Subsequent solutions used Linux c-group resource containers to apply limits to rate-based resources such as CPU usage, network I/O, and disk I/O. These controls do not guarantee unimpaired performance though as the paper highlights that \say{L3 cache pollution still happens}, which would cause a degradation to performance of both tasks as they cause thrashing in the processor cache.
 \newline
-If the machine learning workers were co-located alongside other short-duration CPU intensive tasks, even with the appropriate kernel-level tooling to prevent performance degradation, it is likely that performance would be affected, and the worker would become a straggler. Co-location is often used to increase the utilisation of all resources, and a solution to the problem of stragglers which accounts for co-location is more applicable in real-world uses. TODO these previous two paragraphs should be somewhere else.
+\newline
+If the machine learning workers were co-located alongside other short-duration CPU intensive tasks, even with the appropriate kernel-level tooling to prevent performance degradation, it is likely that performance would be affected, and the worker may become a straggler. Co-location is often used to increase the utilisation of all resources, and a solution to the problem of stragglers which accounts for co-location is more applicable in real-world uses.
 
 \subsection{Work Stealing}
 
@@ -141,8 +120,6 @@ The Java Runtime Environment contains the ForkJoinPool\cite{javaThreads}, a conv
 \medskip
 Algorithm \ref{ForkJoinAlgorithm} contains the pseudocode used in the Java language documentation to explain the ForkJoinPool framework. The ``fork'' occurs on line 4 where a task is divided into two subtasks, and the ``join'' is line 5 when waiting for the results.
 
-\newpage
-
 \begin{lstlisting}[caption={An implementation of the Fibonacci algorithm using the ForkJoinFramework taken from the Java documentation},label=JavaRecursive]
 public class Fibonacci extends RecursiveTask<Integer> {
   final int n;
@@ -158,16 +135,50 @@ public class Fibonacci extends RecursiveTask<Integer> {
 }
 \end{lstlisting}
 
-
-
 It is important to note that work stealing occurs at both a user-level and kernel-level on a modern operating system. However, each of these has a different use case for work stealing. In the above Java example, a user-level program, the use of a ForkJoinPool was to convert a serial program into a parallel equivalent with a decreased runtime. Conversely, the Linux scheduler, a kernel-level program, uses work stealing to ensure fair access to resources for users. The programs presented in this paper are user-level programs and as such they are focused on improving performance.
 
-\subsubsection{Dynamic vs Static Scheduling}
-In the area of parallel computing, there exists the concept of an "embarrassingly parallel" task, which involves a set of operations with no inter-operation dependencies. A scalar-vector product is such a task because each element of the vector can be multiplied independently. Embarrassingly parallel tasks are limited by the computational resources available until an upper bound is met. The upper bound for a scalar-vector product is the number of elements in the vector. Beyond this amount, no additional resources will be useful as there is no work available for them to execute.
+\subsubsection{Dynamic vs Static Scheduling} \label{dynamicStatic}
+In the area of parallel computing, there exists the concept of an "embarrassingly parallel" task, which involves a set of operations with no inter-operation dependencies. A scalar-vector product is such a task because each element of the vector can be multiplied independently. Examples include scalar-vector and matrix-matrix multiplications, as each element can be calculated independently. A vector-vector dot product is not however, as after the initial pairwise multiplication the elements must be summed, and summation depends on the results of the multiplication. Embarrassingly parallel tasks are limited by the computational resources available until an upper bound is met. This upper bound is equal to the complexity of the algorithm, a scalar-vector product is an $\mathcal{O}(n)$ operation, and therefore at most $n$ compute resources can be used in the operation.
 \newline
-We shall now consider the case in which there is a pool of work to complete, and fewer computational resources than the amount of work, implying that each resource will be required to execute at least one piece of work. In such a model we can assign work to these resources with either a dynamic or static schedule.
 \newline
-A static method is one where resources are assigned work ahead of time, usually using some combination of resource identifiers and work identifiers. An example of a statically scheduled algorithm of a scalar-vector product is presented in Algorithm \ref{StaticSchedule}.
+In an industrial context, the amount of computational resources will be bounded by factors such as the amount of capital available to purchase resources, and whether a company is able to make sufficient use of all resources. The objective is then to determine how to best make use of available resources. Many production environments contain the usage of task queues, where items of work to be processed are stored. The benefit of such a system is that the task queue is able to provide a buffer between the incoming rate of tasks and the rate at which resources can process tasks. If the incoming rate were to experience a significant, unexpected surge then without a task queue tasks would be ignored as there is no capacity to store them. We may wish to know whether to use either a single task queue that all resources share, or to provide each resource with its own, local queue, and which of these two approaches leads to better utilisation of available resources. The area of Queueing Theory \cite{queueing} provides a mathematical analysis of how to answer such a question.
+\newline
+\newline
+The rate of arriving tasks in most commercial system is a constant number of tasks amortised over time. Each resource can only process a single task at once. Both the arrival and departure rate of tasks in the system will be modelled as an exponential distribution. A fixed number of resources, $n$ between both queueing systems shall be assumed. A simplifying assumption will be that the task queue has an unlimited capacity. Based on the memory and disk drive capacities in most commercial environments relative to the size of each task, this is a valid assumption. Using the notation of Kendall in his seminal work \say{Stochastic processes occurring in the theory of queues} \cite{kendall1953stochastic} the single queue system can be expressed as:
+\newline
+\begin{align*}
+M / M / n
+\end{align*}
+
+Where M denotes the Markovian nature of the arrival and departure rates of tasks in the system.
+
+The multiple queue system is a collection of $n$ queues, each with a single resource processing and can be expressed as:
+
+\begin{align*}
+M / M / 1
+\end{align*}
+
+The rate of arrivals in the multi-queue system is equal to the rate of arrivals in the single queue system divided by the number of resources as tasks will be equally divided amongst all resources. The arrival rate of the single queue system is defined as $\lambda$ and the rate of task completion of a single resource is defined as $\mu$. In the multi-queue system the arrival rate at each resource is $\frac{\lambda}{m}$.
+\newline
+\newline
+The comparison we wish to make across the two queueing schemes is the average response time when processing a task, which includes both the processing time and also the queuing time, denoted as $\overline{T}$. With the multi queue environment, this is simply:
+
+\begin{align*}
+\overline{T} &= \frac{1}{\mu - \frac{\lambda}{m}} \\
+                   &= \frac{m}{m\mu - \lambda}
+\end{align*}
+
+The single queue system is more complex but gives:
+
+\begin{align*}
+\overline{T} &= \frac{C(m, \frac{\lambda}{\mu})}{m\mu - \lambda} + \frac{1}{\mu} \\
+\end{align*}
+
+Where $C(m, \frac{\lambda}{\mu})$ is the Erlang C formula \cite{erlang} used for determining the probability that a task will be added to the single queue. The definition of the Erlang C Formula is not necessary and therefore will be omitted for brevity. However, note that the result is a probability implying that its range is bounded by [0,1]. The value of $\frac{1}{\mu}$ is negligible in most use cases, and will not account for the difference between $m$ and $C(m, \frac{\lambda}{\mu})$. From this it can be seen that the single queue environment provides a shorter response time than an alternate multiple queue system.
+
+\subsubsection{Dynamic vs Static Scheduling Example}
+
+To provide a practical example of the above concept consider a scalar-vector product calculated with several workers. A dynamic schedule would involve workers calculating at their own rate, and a static schedule would involve each worker processing from their own pre-defined set of tasks. Consider also that in a practical application the workers will not all process at a fixed rate, some workers will be stragglers, and their rate will be substantially lower than the other workers.
 
 \IncMargin{1em}
 \begin{algorithm}[H]
@@ -189,19 +200,10 @@ A static method is one where resources are assigned work ahead of time, usually 
 \DecMargin{1em}
 \medskip
 
-The above algorithm is conceptually very simple, and is guaranteed to eventually multiply every element in the vector with the given scalar in the absence of resource failures.
-\newline
-However, under this schedule it is possible for the performance of the overall algorithm to be impacted by a single, slower resource. Although all resources operate independently the overall completion of the algorithm is dependent on the slowest result being completed.
-\newline
-Some optimisations may include grouping together the elements that a resource will need to access to improve cache performance, but these are inconsequential to the problem of dealing with the slowest resource.
-\newline
-However, what if instead of resources being assigned work ahead of time, they were able to complete work at the fastest rate of which they are capable. This would alleviate the impact caused by the slowest worker simply due to it processing fewer tasks.
+Algorithm \ref{StaticSchedule} demonstrates how workers can be assigned values in the vector to process. Under this allocation, all items are guaranteed to be processed by at most a single worker. However, under this schedule it is possible for the performance of the overall algorithm to be impacted by a single, slower worker. Although all resources operate independently the overall completion of the algorithm is dependent on the slowest result. The fastest workers would also remain idle between the completion of their portion of the work, and the completion of the slower worker. If this idle time could be used, it would decrease the total processing time, and increase the utilisation of all workers as less time would be spent idling.
 \newline
 \newline
-Dynamic scheduling usually requires the use of some piece of state to track progress, and resources modify the state to represent work completion. These pieces of state are usually atomic or thread-safe data structures in order to avoid the risk of race conditions.
-\newline
-Continuing the above example of a scalar-vector product Algorithm \ref{DynamicSchedule} presents an alternative to Algorithm \ref{StaticSchedule} which is more resilient against slow resources.
-\newline
+An equivalent algorithm using Dynamic scheduling is presented in Algorithm \ref{DynamicSchedule}. Dynamic algorithms contain state that is shared between workers, state which can be used to track the progress of the algorithm. In a modern programming language, these pieces of state must be resistant to data races between multiple workers mutating the state concurrently.
 
 \IncMargin{1em}
 \begin{algorithm}[H]
@@ -222,11 +224,15 @@ Continuing the above example of a scalar-vector product Algorithm \ref{DynamicSc
 \DecMargin{1em}
 \medskip
 
-In Algorithm \ref{DynamicSchedule} the variable $j$ is a thread-local variable used to store the return value of the $getAndInc$ operation on the atomic integer which atomically returns the current value and incrementing it. Because the value of $c$ only monotonically and atomically increases, it is not possible for multiple threads to have the same value of $c$, and therefore each element of $N$ will only be modified once. It can be seen that the rate of completion of such an algorithm is now less vulnerable to the slowest resource as faster resources can effectively "steal" some of the work the slower resource would have been allocated under a static schedule.
-\newline
+In Algorithm \ref{DynamicSchedule} the variable $j$ is a variable local to workers used to store the return value of the $getAndInc$ operation on the global variable $c$ which atomically returns the current value and increments its internal counter. Because the value of $c$ only monotonically and atomically increases, it is not possible for multiple threads to have the same value of $c$, and therefore each element of $N$ will only be modified exactly once. The dynamically scheduled algorithm is less vulnerable to slower workers as faster workers can \say{steal} work that they would not have been allocated with the static schedule. By stealing this work, the faster workers reduce the amount of time they spend idle, increasing their utilisation, and also reducing the time to process all elements. These two schedules are related to the single queue and multiple queue systems discussed previously.
+
+\subsubsection{Limits of Scheduling} \label{limits}
+
 If the relative performances of the resources were known ahead of time, it would be possible to construct a static scheduling which would take account of this and attempt to weight the amount of work a resource receives by its performance. However, such an algorithm would be unable to deal with dynamic variations in performance often encountered in real world use cases. There are many non-deterministic factors affecting the performance of the overall algorithm and a static scheduler is not flexible enough to adapt to consider these factors when assigning work.
 \newline
+\newline
 It is also important to realise that not all algorithms could benefit from a dynamic scheduling. If the workers are co-located on a single, physical machine then the average case for inter-resource communication will be substantially lower than for inter-machine communication. In the above example, the atomically incrementable variable could be accessed over a network connection, but the overhead of such an exchange would likely outweigh any performance benefits of work-stealing for most application executions.
+\newline
 \newline
 There are pathological cases in which different schedules provide no benefit. Consider a resource that has crashed in an environment with no upper bound on execution time of a task. Other workers will be unable to determine if a worker has either crashed or is currently processing.
 \newline
@@ -237,10 +243,11 @@ to be a known upper bound on each processing step, a known upper bound on
 message transmission and processes have perfectly synchronized physical
 clocks.}
 
-From this definition it can be seen that both Algorithm \ref{StaticSchedule} and Algorithm \ref{DynamicSchedule} are not synchronous as there is no bound on processing steps, and it cannot be assumed that all workers have synchronised physical clocks, therefore stragglers appear. The problem is handling the case where a single resource has either crashed, or could be taking an indefinite amount of time to process. In the case where execution is blocked on a single node for an arbitrary amount of time, no scheduling system will be of use.
+From this definition it can be seen that both Algorithm \ref{StaticSchedule} and Algorithm \ref{DynamicSchedule} are not synchronous as there is no bound on processing steps, and it cannot be assumed that all workers have synchronised physical clocks, therefore stragglers appear. The problem is handling the case where a single resource has either crashed, or could be taking an indefinite amount of time to process. In the case where execution is blocked on a single node for an arbitrary amount of time, no scheduling system will be of use. This project does not consider the case in which a worker has crashed, but rather that performance is seveerly degraded.
 
 \subsubsection{Side Effect Free Operations and Idempotence}
 Algorithms \ref{StaticSchedule} and \ref{DynamicSchedule} are both stateful solutions to the problem of a scalar vector product. This is because they are assumed to be run on multiple resources who will modify some global piece of state, in this case the vector.
+\newline
 \newline
 We will instead consider an alternative solution which decouples the computation from the state modification. A set of $r$ resources shall be divided into a single, central resource that will manage updates to the input vector, and $r-1$ resources responsible for computing the product of a scalar and vector element.
 
@@ -275,11 +282,15 @@ We will instead consider an alternative solution which decouples the computation
 
 The function $sendTaskToResource$ used in Algorithm \ref{StatelessProduct} instructs the resource with the identifier equal to the first parameter to run the task identified by the second parameter using all subsequent parameters as task arguments.
 \newline
+\newline
 In this example the other resources will be executing a simple multiplication of their inputs: the vector element and the scalar. Note that the actual computation here is very simply purely for demonstrative purposes. In a real-world application, the work would be much more intensive and justify the need for multiple workers. This multiplication is also a function as it is guaranteed that given the same inputs that the same output will be returned.
+\newline
 \newline
 The benefit of this system is that worker computations are now side-effect free as they only operate on state passed in as a parameter, rather than any global state. If the pathological case previously discussed where a single worker spends a potentially unbounded amount of time were to occur it can now be mitigated. The solution would be to wait until all work has been assigned and then for all outstanding tasks issue a second request to a second resource and the central resource will use whichever value returns soonest. This is only possible because the operations executed on each resource are side-effect free functions which guarantee that they will provide the same output give identical inputs.
 \newline
+\newline
 Such a solution is not viable without creating side effect free tasks as if two executions of the task were to occur they could both modify the external state.
+\newline
 \newline
 Consider Figure \ref{OverlappingExecution} which visualises how the overlapping of two executions could result in an incorrect result. There are solutions which account for this, however, it is much simpler to develop a solution for which this problem cannot occur.
 
@@ -292,6 +303,7 @@ Consider Figure \ref{OverlappingExecution} which visualises how the overlapping 
 
 In Algorithm \ref{StatelessProduct} the only state modification is assignment which is an idempotent operation meaning that it can occur multiple times and still return an identical result. Therefore if two resources were to return their identical results before the termination of the algorithm it would not cause the result to be incorrect.
 \newline
+\newline
 This approach has been used in industry with a notable example being Google's MapReduce framework. The white paper released detailing the framework \cite{dean2008mapreduce} contained the following explanation of the framework's solution to dealing with stragglers.
 
 \blockquote{When a MapReduce operation is close
@@ -300,32 +312,102 @@ of the remaining in-progress tasks. The task is marked
 as completed whenever either the primary or the backup
 execution completes.}
 
-\newpage
+\subsubsection{Causality}
+The algorithms presented in Section \ref{algorithms} are distributed in nature. That is they are run in parallel across a set of workers, all following the same algorithm. While the algorithms presented are not synchronous using the definition in Section \ref{limits}, workers may only advance to the next round once all workers have completed the current round. This dependence imposes a logical ordering between rounds such that:
+
+\begin{align*}
+slowestWorkerInRound(i) < fastestWorkerInRound(i+1)
+\end{align*}
+
+Where $<$ represents a \say{happens before} relation between the two events in that if $x < y$ then $x$ must have occurred before $y$. However, the construction of such a relation is difficult in a distributed environment. It has been observed that there exists a skew amongst a set of physical clocks, that is, they were not all perfectly synchronised. The lack of synchronisation results in the inability to use physical timestamps to represent a \say{happens before} relation as  visualised in Figure \ref{PhysicalTimestamps}.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Visualisation of how physical timestamps cannot be used to represent causality.}
+  \label{PhysicalTimestamps}
+\end{figure}
+
+Physical clocks cannot be used as no offers of ordering relation can be provided. A worker cannot be told to wait for a certain amount of time before proceeding to the next round as there are no guarantees that all workers will have finished in such a timeframe, and there also exists the possibility of a single worker having a malfunctioning clock such that it would not wait the correct amount of time, further aggravating the problem of synchronisation. Instead of a physical clock to track time, a logical ordering must be used instead. By exchanging messages amongst each other workers can track progress and know that all other workers have finished and therefore it is safe to proceed to the next round. In the field of distributed algorithms the network over which messages are exchanged can be reliable or unreliable. This project is concerned with a real world environment in which an unreliable network exists between workers. It is possible for such a network to still reliably deliver messages \cite{afek1994reliable}. Figure \ref{MessageRetransmissoin} shows how a message can either be delivered zero or one times with no acknowledgement received. The sender will be unable to differentiate these two cases and as a solution the messages are sent until an acknowledgement is received, and on the receiving side all message duplicates are ignored.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Visualisation of how physical timestamps cannot be used to represent causality.}
+  \label{MessageRetransmissoin}
+\end{figure}
+
+Protocols such as TCP are able to reliably deliver messages over an unreliable stream. TCP is heavily used in industry and as such for this project it will be assumed that message deliveries are reliable. The remainder of this project will use the assumption that message delivery is reliable. Using this property workers can now determine when it is safe to proceed to the next round after it has been determined that all workers have completed the current round.
+\newline
+\newline
+This concept of relying on the change in state of a system through the exchange of messages rather than on physical clocks was introduced by Leslie Lamport in his 1978 work \say{Time, Clocks, and the Ordering of Events in a Distributed System} \cite{lamport1978time}. The work contains the notion of a logical clock, which increments in response to a change in state. The \say{happens before} relation can be refined to use the concept of logical clocks to represent causality between events as show in Lemma \ref{LogicalOrderingLemma}.
+
+\begin{lemma}
+Given two events $a$ and $b$ where event $a$ occurred before event $b$ then the following relation holds.
+
+$a \rightarrow b \longrightarrow C(a) < C(b)$
+\label{LogicalOrderingLemma}
+\end{lemma}
+$C(a)$ is the value of the Lamport logical clock at the time that event $a$ occurred.
+\newline
+
+Figure \ref{LogicalTimestamps} demonstrates the same situation as Figure \ref{PhysicalTimestamps} and how logical clocks are able to provide a correct representation of the environment. Logical clocks will be used implicitly in this project in order to ensure a correct logical ordering between events.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{Visual comparison of logical and physical clocks.}
+  \label{LogicalTimestamps}
+\end{figure}
 
 \subsection{Machine Learning}
-Machine Learning is a field of Computer Science associated with developing algorithms that can learn from and make predictions from data\cite{machineLearningDef}. It is closely related to the fields of Computational Statistics and Mathematical Optimisations, and results in computers which are able to detect patterns in data without explicit programming. The use of machine learning has spread well into industry and is now commonly used in areas such as finance, medicine, and telecommunications.
+Machine Learning is a field of Computer Science associated with developing algorithms that can learn from and make predictions from data\cite{machineLearningDef}. It is closely related to the fields of Computational Statistics and Mathematical Optimisations, and results in computers which are able to detect patterns in data without explicit programming. The use of machine learning has spread well into industry and is now commonly used in areas such as finance, medicine, and telecommunications. This project is centred around improving the performance of machine learning in an environment with multiple workers.
+
+\subsubsection{Supervised Learning} \label{supervised}
+This work will be focused on an area of machine learning called \textbf{Supervised Learning}. In supervised learning each piece of input data to the algorithm will contain a label of its true classification. The role of the algorithm is to learn a general rule, expressed as a model, to map an input to a label. The set of all data will divided into two distinct subsets, training data and testing data. The training data will be used to develop the model used to classify inputs, and the performance of the model will be analysed using the testing data. The two subsets of data must be distinct so that the model generated can demonstrate that it is general. It will be able to classify inputs without having seen them before. If the two subsets were to overlap then the model could explicitly remember certain inputs and their true classification.
 \newline
-\subsubsection{Supervised Learning}
-This work will be focused on an area of machine learning called \textbf{Supervised Learning}. In supervised learning each input datum to the algorithm will contain a label of its true classification. The role of the algorithm is to learn a general rule, expressed as a model, to map an input datum to a label. The algorithm will train itself against a subset of all data, and then will be evaluated against a test subset to detemine the accuracy of its labelling rule. The process of assigning labels to input data is known as classification.
 \newline
-\newline
-The generation of this model is dependent on ``feature vectors'' which are extracted from the data as a normalisation step to facilitate statistical analysis. ``Features'' are properites of the data which help to develop rules for detecting patters, used in the eventual classification model. An example of a feature would be a the frequency of words associated with spam when attempting to filter emails.
-\newline
+There are many types of model used in machine learning, and this project focuses on the use of Neural Networks \cite{mackay2003information}.
+
+\subsubsection{Neural Networks}
+Neural Networks represent a computational model of a biological system and attempt to provide general rules to map inputs to a single output. They are comprised of a collection of Neurons, which consist of a set of $I$ pairs of inputs and weights $(x, w)$ and a single output $y$. The output is derived from an internal value called the \say{activation} of the neuron.
+
+\begin{align*}
+a = \sum_{i = 1}^I x_i w_i
+\end{align*}
+
+Once this activation has been calculated the output is equal to a function applied to the activation. This project uses the log-sigmoid function, plotted in Figure \ref{SigmoidFunction}.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{SigmoidFunction}
+  \caption[]{Log-Sigmoid Function. Credit: wikibooks.org}
+  \label{SigmoidFunction}
+\end{figure}
+
+The output of the function is bounded by [0,1] and the value of the function is expressed as:
+
+\begin{align*}
+\sigma(t) = \frac{1}{1 + e^{-t}}
+\end{align*}
+
+Many of these Neurons are connected in layers where the outputs of one layer become the inputs of another layer.
+
 \subsubsection{Feature Extraction}
-The extraction of features is used as a normalisation step where possibly unstructured data is converted into a structured equivalant. For example, sentiment analysis of a work of text would involve generating a frequency histogram of work counts.
+In order to classify an input, features associated with the input must be extracted. These features can be pixel intensities, frequency of keywords, weights etc. This project relates to the recognition of images and the steps involved are to read the data, normalise the data, use this normalised data in the neural network. The normalisation involved is to resize the image to a fixed dimension and then apply a function to each pixel of the image bounding its intensity.
 \newline
 \newline
-For image processing, feature extraction can involve resizing the image so that all data are of the same dimensions followed by converting a raster image to an equivalent matrix and possibly normalising the values of this matrix.
-\newline
+Once the images have been normalised they are passed to the first layer of Neurons, which each examine overlapping portions of the image. The reason that these portions overlap is that with images there is no guarantee that the same object will occupy the same pixels in separate images. Handwriting is inconsistent and digits may be skewed or translated relative to each other even though both images represent the same digit.
+
 \subsubsection{MNIST Dataset}
-The MNIST dataset is a collection of handwritten digits, known as the ``Hello World'' of machine learning. It consists of 60,000 training examples and 10,000 testing examples, which are all accurately labelled. This project will be using the MNIST dataset in the evaluation of a work stealing algorithm.
-\newline
-\subsection{Handwriting Recognition}
+The MNIST dataset is a collection of handwritten digits, considered the ``Hello World'' of machine learning. It consists of 60,000 training examples and 10,000 testing examples, which are all accurately labelled. This project will be using the MNIST dataset in the evaluation of a work stealing algorithm. The set of training images will be divided into distinct subsets, and workers will be assigned a subset to train on. The benefit of dividing the images is that it will be faster to process these images in parallel and aggregate results rather than inspecting each image individually.
+
 \subsection{Parameter Server Architecture} \label{paramserver}
 This project will investigate the effects of work stealing in a distributed machine learning framework. The advantage of a distributed framework are decreased training time, redundancy in the event of a single machine failing, and allowing training to occur on datasets that cannot fit on a single machine.
 \newline
 \newline
-In a single-worker parameter server environment there are two processes controlling the machine learning: the parameter server, acting as a datastore of the model, and the worker, updating the model based on new training data. Data is read by the single worker and processed in batches, referred to as ``minibatches'', and updates are sent to the parameter server. Processing is batched as the bandwidth between the worker and parameter server may be limited. The updates to the parameter server are also commutative and associative so a local reduction at the worker can occur before sending out the batched updates.
+In a single-worker parameter server environment there are two processes controlling the machine learning: the parameter server, acting as a datastore of the model, and the worker, updating the model based on new training data. Data is read by the single worker and processed in batches, referred to as ``minibatches'', where a single minibatch is processed each round. Updates based on the images trained on are sent to the master at the end of each round. At the start of each round each worker receives the latest model from the master and the updates at the end of each round represent augmentations of the local model.
+\newline
 \newline
 Figure \ref{ParameterServerArchitecture} contains a visualisation of the parameter server architecture.
 
@@ -336,6 +418,8 @@ Figure \ref{ParameterServerArchitecture} contains a visualisation of the paramet
   \label{ParameterServerArchitecture}
 \end{figure}
 
+Algorithm \ref{SingleWorkerMachineLearningAlgorithm} is the algorithm for a single worker processing all images in rounds of minibatches. The difference in a multi-worker environment would be that the variable $i$ would only range over a subset of all possible minibatches.
+
 \IncMargin{1em}
 \begin{algorithm}[H]
  \SetKwInOut{Input}{input}\SetKwInOut{Output}{output}
@@ -343,40 +427,47 @@ Figure \ref{ParameterServerArchitecture} contains a visualisation of the paramet
  \Input{The size of each minibatch $m$}
  \BlankLine
 
+$error \longleftarrow 0$\;
  \For{$i \leftarrow 0$ \KwTo $N.length/m$}{
   \For{$j \leftarrow 0$ \KwTo $m$}{
-    $error \longleftarrow 0$\;
-    $n \longleftarrow N[j]$\;
+    $n \longleftarrow N[i + j]$\;
     $n' \longleftarrow normaliseImageToMatrix(n)$\;
-    $grad \longleftarrow extractGradients(n')$\;
-    $prediction \longleftarrow model.train(grad)$\;
+    $prediction \longleftarrow model.train(n')$\;
     $error \longleftarrow error + computeLoss(actual, prediction)$\;
    }
-  $model.correctError(error)$\;
  }
+  $reportError(error)$\;
  \caption{Single Worker Handwriting Image Recognition Algorithm}
  \label{SingleWorkerMachineLearningAlgorithm}
 \end{algorithm}
 \DecMargin{1em}
 \medskip
-In order to facilitate faster processing, multi-worker environments divide the set of minibatches between workers and workers are trained in parallel. There are several synchronisation strategies that can be applied for the collected updates at the end of every minibatch for each worker.
 
+The $train()$ function processes a single data item, by feeding it forward through the Neural Network to determine the predicted output, then calculating the discrepancy between the predicted output and the actual output, and propagate this backwards through the Neural Network so that Neurons may adjust their weights to correct for errors. The $computeLoss$ function inspects the output produced by the Neural Network and determines the mean squared error between the actual output and the predicted output, equal to:
 
+\begin{align*}
+meanSquaredError = \frac{(expected - actual)^2}{2}
+\end{align*}
+
+The training of all images is known as an epoch. The errors accumulated at each worker per epoch are used to evaluate the accuracy of the system. A count is also kept of the number of correctly classified images, which is the true accuracy of the system.
+\newline
+\newline
+In an environment with multiple workers updates to each worker's local model are sent to the master for use in synchronising workers. There are three main strategies that are used in the parameter server environment.
 
 \subsubsection{Bulk Synchronous Parallel (BSP)}
-This is the simplest form of multi-worker synchronisation. At the end of each minibatch the workers send the updates to the parameter server which collects them and will not allow workers to proceed to the next batch until all updates have been received. The advantage of this strategy is that it guarantees that all workers will converge on a single model because workers by definition cannot display more than a single round of divergence in their models. There are however significant overheads in terms of waiting for the slowest worker per round to synchronise with the master. Traffic patters are also quite bursty with the potential for network congestion at the beginning of each minibatch round. This model allows for the greatest progress in a single round because all workers have received the updates from all other workers before proceeding to the next round.
+This is the simplest form of multi-worker synchronisation. At the end of each minibatch the workers send the updates to the parameter server which collects them and will not allow workers to proceed to the next batch until all updates have been received. The advantage of this strategy is that it guarantees that all workers will converge on a single model because workers by definition cannot display more than a single round of divergence in their models. There are however significant overheads in terms of waiting for the slowest worker per round to synchronise with the master. Traffic patters are also quite bursty with the potential for network congestion at the beginning of each minibatch round. This model allows for the greatest progress in a single round because all workers operate with the latest set of parameters.
 
 \subsubsection{Full Asynchronous}
-If we consider $l$ to be the limit of the number of minibatch rounds between the slowest and fastest workers then we can consider BSP to have $l = 1$. In a Fully Asychronous model then $l = \infty$, i.e. workers proceed at their own rate unimpared by the progress of others. Fully asynchronous models will saturate compute capacity, a metric we wish to optimise for. However, because there is no guarantee on them receving updates from other workers before proceeding on to the next minibatch, there is the possibility that the worker's local model is stale and outdated. This reduces the efficacy of training and will result in a slowed convergence. Worker's local models may also diverge reuslting in an ineffective global model at the parameter server.
+If we consider $l$ to be the limit of the number of minibatch rounds between the slowest and fastest workers then we can consider BSP to have $l = 1$. In a Fully Asynchronous model then $l = \infty$, i.e. workers proceed at their own rate unimpaired by the progress of others. Fully asynchronous models will saturate compute capacity, a metric we wish to optimise for. However, because there is no guarantee on them receiving updates from other workers before proceeding on to the next minibatch, there is the possibility that the worker's local model is stale and outdated. This reduces the efficacy of training and will result in a slowed convergence. Worker's local models may also diverge resulting in an ineffective global model at the parameter server.
 
 \subsubsection{Bounded Staleness}
 In a Bounded Staleness model $l$ is configurable. In the event of a slow worker being caused by an transient delay, for example a pathological kernel scheduling, unaffected workers can continue to make progress and the delayed worker will hopefully catch up. If a worker is consistently slower, as could be the case with a less powerful host machine, then the same problems will occur with BSP, albeit with a difference of multiple minibatch rounds, rather than one.
 \newline
 \newline
-In a conventional machine learning framework, the computation and updating of local parameters will be performed seperately. The intention is to saturate all possible resources, which is only attainable if the seperate processes are decoupled.
+In a conventional machine learning framework, the computation and updating of local parameters will be performed separately. The intention is to saturate all possible resources, which is only attainable if the separate processes are decoupled.
 \newline
 \newline
-The algorithm for a mulit-worker environment is very similar to that of a single worker as can be seen in the difference between Algorithm \ref{SingleWorkerMachineLearningAlgorithm} and Algorithm \ref{MultiWorkerMachineLearningAlgorithm}. Note that the worker no longer accepts all training images, but rather a subset of them, and that the concept of a staleness bound has been introduced to prevent divergence between the workers.
+The algorithm for a multi-worker environment is very similar to that of a single worker as can be seen in the difference between Algorithm \ref{SingleWorkerMachineLearningAlgorithm} and Algorithm \ref{MultiWorkerMachineLearningAlgorithm}. Note that the worker no longer accepts all training images, but rather a subset of them, and that the concept of a staleness bound has been introduced to prevent divergence between the workers.
 
 \IncMargin{1em}
 \begin{algorithm}[H]
@@ -430,7 +521,7 @@ Algorithm \ref{MultiWorkerMachineLearningAlgorithm} and Algorithm \ref{ModelUpda
 
 \newpage
 
-\section{Work Stealing Algorithms}
+\section{Work Stealing Algorithms} \label{algorithms}
 
 To implement work stealing between workers in a parameter server architecture two algorithms were developed. One of which focused on a decentralised, worker-to-worker communication model, and another using the parameter server as a central co-ordinator. This chapter will discuss the implementation of both algorithms as well as considerations for real world use.
 
@@ -455,7 +546,7 @@ Updates to the master occur multiple times per round for each worker, and each r
 \end{figure}
 
 Updates beyond a certain frequency simply represent no new information and simply cause to increase load on the parameter server and utilise excessive bandwidth.
-\newline
+
 \subsubsection{Update Based Approach}
 Initially, four centralised notification exchange schemes were considered and benchmarked to determine which provided the greatest benefit against stragglers.
 
@@ -468,10 +559,11 @@ Initially, four centralised notification exchange schemes were considered and be
 
 The distinction between \say{end of round} and \say{before end of round} refer to when the centralised master would send the messages indicating to workers how they would be affected by work stealing. Immediately the first approach can be ruled out as the master cannot know whether a worker is close to completing their round without updates. Such a system could have depended upon prior rounds and projecting round completion into the future, but this would be vulnerable to unexpected delays, which was the intention of the project.
 \newline
+\newline
 The benefits of sending messages before the end of the round is that it allows the worker that is stealing to pre-load their image buffer so that immediately upon terminating its initial batch it could process the stolen work. There is a concern with this approach that communication delays would cause the message alerting the victim of work-stealing to not execute certain tasks to arrive after they had been processed. TODO explain why this is not ideal, but won't significantly affect performance.
 \newline
-Figure \ref{RepeatedEvents} shows the number of repeated images processed across TODO rounds of training. This is a measure that should be minimised and it can be seen that \say{Updates and messages sent before end of round} achieves the lowest score in this metric. Figure \ref{EventProcessingPerformance} shows the relative performance of the various schemes in the presence of stragglers, and again say{Updates and messages sent before end of round} is shown to be the superior choice.
 \newline
+Figure \ref{RepeatedEvents} shows the number of repeated images processed across TODO rounds of training. This is a measure that should be minimised and it can be seen that \say{Updates and messages sent before end of round} achieves the lowest score in this metric. Figure \ref{EventProcessingPerformance} shows the relative performance of the various schemes in the presence of stragglers, and again say{Updates and messages sent before end of round} is shown to be the superior choice.
 
 \begin{figure}[H]
   \centering
@@ -492,7 +584,6 @@ Figure \ref{RepeatedEvents} shows the number of repeated images processed across
 Algorithm \ref{CentralisedAlgorithmWorker} details the algorithm that the workers execute. The underlying framework in this project provides the mechanisms for message delivery between workers. Messages contain a string identifying the type of message, for example either an \say{update} message to the master, or a \say{begin} message to the workers.
 \newline
 In Algorithms \ref{CentralisedAlgorithmWorker} and \ref{CentralisedAlgorithmServer} this messaging framework will be represented using a function \say{on}. The \say{on} function takes as parameters: the message string identifier and optionally additional parameters required to process the message contents.
-\newline
 
 \IncMargin{1em}
 \begin{algorithm}[H]
@@ -551,43 +642,19 @@ In Algorithms \ref{CentralisedAlgorithmWorker} and \ref{CentralisedAlgorithmServ
 
 In Algorithm \ref{CentralisedAlgorithmWorker}, $sendUpdateToMaster()$ and $sendResultToServer()$ are simply convenience methods to communicate with the parameter server, and will not be included for clarity. The $train$ function trains the machine learning model with the specified image. $skipImages$ will skip the specified images from the end of the worker's current minibatch. A \say{steal} message will instruct the worker to read the images that another worker has been too slow to process. \say{lose} is the equivalent call to the victim of work stealing to indicate that a number of images have been lost and that they should skip them when training. \say{nack} is used to indicate that no action should be taken this round as all workers are operating at a rate similar enough that any attempt at work stealing would incur additional overhead.
 
-\subsubsection{Causality}
-It has been observed that there exists a skew amongst a set of physical clocks, that is, they were not all perfectly synchronised. The lack of synchronisation results in the inability to use physical timestamps to represent causality between events as visualised in Figure \ref{PhysicalTimestamps}.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{Visualisation of how physical timestamps cannot be used to represent causality.}
-  \label{PhysicalTimestamps}
-\end{figure}
-
-In his 1978 work \say{Time, Clocks, and the Ordering of Events in a Distributed System} \cite{lamport1978time} Leslie Lamport proposed the idea of logical clocks. These would be used to represent causality because they were dependent upon changes in the state of a system, rather than the progression of time. Upon the change of state in a system the clocks would increment, and the relationship between two events as shown in Lemma \ref{LogicalOrderingLemma}.
-
-\begin{lemma}
-Given two events $a$ and $b$ where event $a$ occurred before event $b$ then the following relation holds.
-
-$a \rightarrow b \longrightarrow C(a) < C(b)$
-\label{LogicalOrderingLemma}
-\end{lemma}
-$C(a)$ is the value of the Lamport logical clock at the time that event $a$ occurred.
-\newline
-
- Figure \ref{LogicalTimestamps} demonstrates this property and how an equivalent physical clock based system would have failed.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{Visual comparison of logical and physical clocks.}
-  \label{LogicalTimestamps}
-\end{figure}
+TODO adjust these sections
 
 In Algorithm \ref{CentralisedAlgorithmWorker} there is a call to $awaitResponse()$. This is a method which blocks execution until the worker has received either a \say{nack}, \say{lose}, or \say{steal} message and handled its body. Message delivery in this system is designed to be asynchronous, so that messages can be received and handled simultaneously. The system has also been designed so that there is a guarantee that a worker cannot receive a \say{beginRound} message until the completion of this current round. The usage of this message can be seen as an equivalent to a logical clock in that it imposes an ordering on the modification of state in the system. If a worker were to steal work it can be ensured that they would not call $sendResultToServer$ more than once per round. Figure \ref{awaitResponse} shows the necessity of such a blocking call and how the logical ordering of events is able to prevent race conditions in a way that physical clocks can not.
 \newline
+\newline
 There exists an implicit Lamport logical clock which imposes a logical ordering between the sending of updates to the master and whether or not to immediately send a response to the master after the completion of training. It ensures that the $sendResultToServer$ event must occur after the instruction issued by the server by implicitly incrementing a Lamport logical clock only after a message from the server has been processed.
+\newline
 \newline
 As mentioned previously, there is the potential for some images to be repeated while processing. If the server instructs a worker to skip images and the worker receives the message after beginning to process images then the will be processed twice. A variant of this algorithm which utilises a Two-Phase Commit would alleviate this problem. The server would send an initial \say{commit-request} message to workers and would receive responses indicating whether they were prepared for work stealing. The preparation would be whether the victim had not already processed the work to be stolen. Upon a successful round of responses the master would then send a \say{commit} message which would instruct the work stealing to occur. If the initial responses indicated that work stealing would not be possible this round then the master would send an \say{abort} message and no work stealing would occur.
 \newline
+\newline
 This algorithm would achieve resiliency against the same image being processed multiple times, however the Two-Phase Commit is known for being a high overhead approach, and in this scenario the overhead outweighs the benefits.
+\newline
 \newline
 In the current implementation of Algorithm \ref{CentralisedAlgorithmWorker} the server will send a response to workers who will steal work before they have finished their current batch. This is to achieve greater performance by pipelining the tasks that the worker will perform. While the current batch of images is being processed, new images are being read. Figure \ref{RepeatedEvents} shows that this approach has led to TODO repeated events, and has not impacted accuracy.
 
@@ -657,6 +724,7 @@ is a function which will determine the amount of work to steal from the slowest 
 \subsubsection{Minimum Sufficient Work Stealing Value}
 The limit on the minimum amount of work that can be stolen at a benefit to the system is determined through the evaluation of the costs associated with work stealing. Initially a model will be built assuming that updates are not sent, and a simpler model will be developed once updates are added to the system.
 \newline
+\newline
 Several per-system and per-round values are used in the generation of the model.
 $t_1$ represents the time of completion of the fastest worker.
 $t_2$ represents the time of completion of the slowest worker.
@@ -702,11 +770,13 @@ These values are all known by the server which allows it to make a high quality 
 \subsection{Decentralised Model}
 The decentralised model operates on a worker-to-worker level for arranging whether work-stealing shall occur. It uses many of the same techniques as the centralised model, but the parameter server is used solely as a store for the machine learning model.
 \newline
+\newline
 The benefit of the system is that the logic for determining whether to steal work is co-located with the state responsible for tracking worker progress. The initial reasoning for the efficacy of the decentralised model was that it would attempt to reduce overhead by removing additional messages.
 
 \subsubsection{Decentralised Algorithm for Workers}
 
 Algorithm \ref{DecentralisedAlgorithmWorkerBeginRound} details how workers handle the beginning of each round. As in the centralised version workers receive a \say{beginRound} message from the server to indicate that they should commence training on the next minibatch of images.
+\newline
 \newline
 Using the same technique as the centralised version, workers will send a message when they approach the final message in a batch, rather than waiting to complete the minibatch. This is done as a performance improvement, and Figure \ref{RoundDegradation} shows that transient events do not tend to affect workers on a per-round basis, which leads to the simplifying assumption that each round displays a constant training rate for each worker.
 
@@ -741,6 +811,7 @@ Using the same technique as the centralised version, workers will send a message
 
 The logic to handle a minibatch is very similar to the decentralised system. If a worker reaches the threshold required to commence the work-stealing process and it has not received messages from other workers this round it will broadcast a \say{remaining} message. This broadcast will also set an internal boolean variable \say{sentRemaining}. After training completes workers will either send their models to the server if they were not the first to attempt work stealing, otherwise they will not.
 \newline
+\newline
 There are guarantees imposed on further steps in the algorithm which ensure that if a worker were to send a \say{remaining} message that the local model would also be sent to the server. Thus, per round, it can be seen that all workers will send their local models, ensuring liveness in the system.
 
 \subsubsection{Minimum Sufficient Work Stealing Value}
@@ -754,9 +825,8 @@ Where $r_1$ and $r_2$ are the training rates of the fastest and slowest workers 
 
 Algorithms \ref{DecentralisedAlgorithmWorkerRemaining} and \ref{DecentralisedAlgorithmWorkerResponse} detail the two-way protocol which facilitates the stealing of work. In Algorithm \ref{DecentralisedAlgorithmWorkerBeginRound} it can be seen in which circumstances a worker will send a \say{remaining} message, which corresponds to the initial step of the work stealing protocol.
 \newline
-Upon the broadcast of the \say{remaining} message, the fastest worker awaits the arrival of a response from all other workers. This is done to impose a logical ordering on work that is stolen to ensure that a new round will not begin until all work from the previous round has completed. The remaining workers can respond with two messages types, a \say{nack} to indicate that they do not have sufficient work to steal, and a \say{remainingResponse} which instructs the fastest worker to read a number of images at a certain offset.
 \newline
-
+Upon the broadcast of the \say{remaining} message, the fastest worker awaits the arrival of a response from all other workers. This is done to impose a logical ordering on work that is stolen to ensure that a new round will not begin until all work from the previous round has completed. The remaining workers can respond with two messages types, a \say{nack} to indicate that they do not have sufficient work to steal, and a \say{remainingResponse} which instructs the fastest worker to read a number of images at a certain offset.
 
 \IncMargin{1em}
 \begin{algorithm}[H]
@@ -821,10 +891,12 @@ Similar to the centralised model, if a worker has at least a $minimum$ number of
 
 It is guaranteed that the fastest worker will send its local model to the server regardless of the responses received, through the use of the \say{responsesOutstanding} internal state tracker.
 \newline
+\newline
 If the fastest worker has work to steal, it will read the images at the appropriate offset and augment its local model. The function $awaitTraining()$ is used as message handling occurs concurrently with all processing. This includes if multiple work stealing messages are received and the fastest worker must train on stolen work multiple times.
 
 \subsubsection{Disadvantages of Decentralised Algorithm}
 A major concern for the decentralised model is the lack of co-ordination between the slower workers. When using the centralised model, it can be ensured that only a single batch of stolen work is sent to the fastest worker as well as only one worker stealing work. This section shall contain an analysis of these problems, as well as mitigations in application.
+\newline
 \newline
 Message transmissions incur a physical time delay. Figure \ref{messageInterleave} visualises how multiple wokers could believe that they are the fastest worker. Based on the use of this work stealing algorithm in practise it is very common that at least two workers send \say{remaining} messages.
 
@@ -844,9 +916,12 @@ The following two rules define the decentralised work stealing protocol in the e
 
 It is for this reason that Algorithm \ref{DecentralisedAlgorithmWorkerRemaining} contains the $receivedRemaining \lor sentRemaining$ statement. If a worker has already received a \say{remaining} message then it can have responded with either a \say{nack}, in which case any future messages should return \say{nack} as the number of images remaining decreases monotonically, or it will have responded with a \say{remainingResponse} in which case a \say{nack} should be returned to oblige with the first rule.
 \newline
+\newline
 If message complexity is considered then the worst case is when all workers consider themselves to the fastest worker. With $n$ workers, and each worker anticipating $n-1$ responses, the message complexity would be $\mathcal{O}(n^2)$. If all workers were to operate at the same rate then this would also turn into the average case.
 \newline
+\newline
 The aim is to therefore prevent all workers sending \say{remaining} messages at the same time regardless of rate of training. A solution to this is to add some randomness into the threshold value used to determine whether or not a worker should send a \say{remaining} message. It is important that such a skew is small enough to not cause stragglers to possibly report themselves as the fastest worker, and to also prevent the fastest workers from fetching work too late. The value used should also be randomly generated on a per-round basis, otherwise it may result in a single worker continuously stealing work even if another worker were further ahead.
+\newline
 \newline
 A value of $0.1*miniBatchSize$ has found to be useful, and Figure \ref{skewValue} presents an analysis on the range of possible values used, including no skew.
 
@@ -865,7 +940,7 @@ The other main problem with the decentralised model is the possibility of many w
 
 \section{Design and Implementation}
 
-The project developed on top of two existing bodies of work: SEEP, a distributed processing platform, and Ako, a machine learning framework built on top of SEEP. The choice was made as I had experience developing with SEEP and was comfortable working with its API, and Ako was a well-structured, easily-modifiable codebase which allowed someone with little machine learning experience to make major modifications and understand the impact of those changes.
+The project developed on top of two existing bodies of work: SEEP, a distributed processing platform, and Ako, a machine learning framework built on top of SEEP. The choice was made as I had experience developing with SEEP and was comfortable working with its API, and Ako was a well-structured, easily-modifiable codebase which allowed someone with little machine learning experience to make major modifications and understand the impact of those changes. When I began work on modifying Ako to allow work stealing it functioned as both a single and multiple worker machine learning framework. All changes made were to augment the algorithms used by the workers to allow for work stealing and dynamic minibatch processing. Both of these changes will be covered in detail in this section.
 
 \subsection{Machine Learning Framework}
 
@@ -874,6 +949,41 @@ Other machine learning frameworks were considered, such as Google's Tensorflow, 
 \newline
 Note that no part of this project is dependent upon any features provided by SEEP or Ako, and that the algorithms presented would function just as well in any distributed framework.
 
+\subsection{Dynamic Minibatch Processing}
+
+The first feature implementation was altering how each worker processes its minibatch. This was related to the concepts presented in Section \ref{dynamicStatic}. The initial version of Ako used statically assigned work between threads and had the characteristic of resource underutilisation in the case where the amount of work to process did not divide evenly into the minibatch size. The scheduling would generate $n-1$ threads, where $n$ is the number of cores in the machine. For example, with a minibatch size of 25, and an 8 core machine, 6 of the threads would each process 3 images, and the final thread would process 7. This represented an opportunity to implement a dynamic thread scheduling. By using Java's \textit{AtomicInteger} class as the state tracker for the threads, the rate of thread processing increased significantly. Listings \ref{staticThreads} and \ref{dynamicThreads} contain an abbreviated version of the old and new scheduling code.
+
+\begin{lstlisting}[caption={Old, static thread scheduling},label=staticThreads]
+for(int i = 0; i < NUM_THREADS; i++) {
+	final int IDEAL_IMAGES_PER_THREAD = (int)(examplesToTrain / NUM_THREADS);
+	final int NUM_IMAGES;
+	if(threadIndex < NUM_THREADS - 1) {    
+    		NUM_IMAGES = IDEAL_IMAGES_PER_THREAD;
+	} else {
+    		NUM_IMAGES = examplesToTrain - (NUM_THREADS -1) * IDEAL_IMAGES_PER_THREAD;
+	}
+	for(int k = 0 ; k < NUM_IMAGES ; k++) {
+		train(); // Abbreviated for brevity
+	}
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Dynamic thread scheduling replacement},label=dynamicThreads]
+this.imagesRemaining.set(examplesToTrain);
+
+for(int i = 0; i < NUM_THREADS; i++) {
+    while (imagesRemaining.getAndDecrement() > 0) {
+		train(); // Abbreviated for brevity
+	}
+}
+\end{lstlisting}
+
+The code executed inside of each of the \textit{for} loops actually is actually submitted to a Java \textit{ExecutorService} but this was omitted for brevity. When using the dynamic scheduling the average time to process each minibatch on an 8 core machine decreased from 66ms to 36ms, a ratio of 0.55 from old time to new time. Workers would execute at most 4 images now instead of 7, representing a ratio of $4/7 = 0.57$, indicating that the dynamic thread scheduling achieved almost total resource utilisation. The replacement code is also, in the author's opinion, much clearer in its intention. It is more obvious that $examplesToTrain$ items of work will be trained on, which is the contract that applies to the function.
+
+\subsection{Normalisation}
+
+One critical implementation design was to ensure that results were correctly normalised. Under the original version of Ako it could be assumed that at the end of each round a worker had processed one minibatch worth of images. At the end of each round workers collected the augmentations made to their local models, and would apply a normalisation step with a hard-coded value of the number of images processed. These normalised augmentations are what is sent from the worker to the global model and it is important that they represent the actual number of images trained on. Altering the normalisation logic so that a variable number of images could be used ensured that workers were correctly weighted when their updates were used by the Parameter Server. The process of tracking the amount of work actually performed by a worker in most cases is simple. Steal and Lose messages both contain the amount of work being stolen or lost, respectively. By simply adjusting for these amounts the correct value can be determined. The only possibility that this does not hold for is when a worker under the Centralised work stealing scheme processes an image before it has been instructed that the image has been stolen. In this case the amount of work lost is actually equal to the number of items remaining on receipt of the message. The number of remaining images is tracked during processing so this is a simple check of which is smaller between the number of images in the Lose message, and the actual number of images remaining.
+
 \subsection{Architecture}
 SEEP requires that computations are expressed as directed graphs where vertices represent tasks, and edges represent the ability for tasks to communicate. Ako on SEEP requires the following tasks:
 
@@ -881,11 +991,9 @@ SEEP requires that computations are expressed as directed graphs where vertices 
 \item Source for reading data
 \item Sink for emitting the results of training
 \item Parameter Server for maintaining global state
+\item A variable number of Workers, each represented as its own task
 \end{enumerate}
 
-Ako also has the ability to configure a variable number of workers to increase performance, and each worker is modelled as a separate task.
-\newline
-\newline
 SEEP tasks are represented as Java objects which implement the \textbf{SeepTask} interface. The most important methods that must be implemented in the interface are \textbf{setUp}, used as a run-time constructor, and \textbf{processData}, used to handle incoming messages. Messages in SEEP are required to conform to a schema imposed when constructing the edges in the directed graph. Schemas in SEEP are a set of key-value pairs, with keys being strings representing the name of the value, and the value being of a fixed type. Listing \ref{AkoSchema} is the schema used in Ako for inter-task communication.
 
 \begin{lstlisting}[caption={The SEEP schema used for Ako},label=AkoSchema]
@@ -896,7 +1004,7 @@ Schema schema = Schema.SchemaBuilder.getInstance()
 }
 \end{lstlisting}
 
-The \say{task} field is used to identify the type of message, such as: \say{beginRound}, or \say{remaining}, and content is a byte array. The rigidity of the schema imposed some issues, such as requiring to convert Java integers into a byte array representation during transmission even though SEEP does contain the ability to handle integers in a schema. However, this issue was solved using the \textbf{ByteBuffer} class in Java.
+The \say{task} field is used to identify the type of message, such as: \say{beginRound}, or \say{remaining}, and content is a byte array. The rigidity of the schema imposed some issues, such as requiring to convert Java integers into a byte array representation during transmission even though SEEP does contain the ability to handle integers in a schema. However, this issue was solved using the \textbf{ByteBuffer} class in Java which allows for the serialisation of numeric types.
 \newline
 \newline
 Figure \ref{AkoGraph} is the SEEP graph when Ako is using two workers. More workers were typically used, however the graph complexity increases quadratically with the number of workers and does not provide any more detail.
@@ -908,7 +1016,27 @@ Figure \ref{AkoGraph} is the SEEP graph when Ako is using two workers. More work
   \label{AkoGraph}
 \end{figure}
 
-All components message-driven\footnote{https://en.wikipedia.org/wiki/Event-driven\_architecture} and every action performed is in response to an incoming message. The control can be represented by Figure \ref{ControlFlow} showing a simplification of the relations between the Source, Parameter Server, and Workers.
+Ako initially was not able to exchange messages between workers as it was only required that workers communicate with the Parameter Server. The message stream numbering scheme used in SEEP is a little confusing at first. Upon construction of the SEEP tasks a user must explicitly write that two tasks are connected with a stream, and also provide a stream identifier. The confusing aspect is that when a task receives a message that the identifier associated with the message is the identifier that the sender has associated with the stream, not the receiver. Therefore a numbering scheme had to be developed to ensure that workers receiving messages knew the sender of the message, and also that for all message senders that each recipient had a unique stream identifier. Figure \ref{SEEPStreamIDs} shows the numbering scheme used with two Ako Workers, the same process is used for any number of workers but the graph complexity grows quickly without providing any additional insight so a smaller example is used.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=4in]{todo}
+  \caption[]{The SEEP directed graph used by Ako with two workers}
+  \label{SEEPStreamIDs}
+\end{figure}
+
+All tasks in Ako follow the message-driven\footnote{https://en.wikipedia.org/wiki/Event-driven\_architecture} architecture and every action performed is in response to an incoming message. The architecture makes it very simple to develop distributed algorithms, which typically centre around the distribution of messages to progress the system.
+
+\subsection{Tasks}
+
+Each task in the Ako graph represents either a required SEEP construct, or a component of the machine learning framework. An explanation for the requirement and role of each task follows. 
+
+\subsubsection{Source and Sink}
+
+SEEP requires the presence of a Source task and a Sink task, which both implement the \textbf{SeepTask} interface. The Sink in Ako is not used, as all communication exists solely between the workers and parameter server during training. In other uses of SEEP it can act as a final aggregation point collecting the results of many previous tasks and collate them into a single data source. If for example a word count program were developed and the corpus of text too large to fit within a single machine then there could be many workers each processing a subset of all text and sending their results to the sink to publish the final results in a log file. The sink is only required to handle word frequencies and therefore only a single machine would be required to aggregate all results.
+\newline
+\newline
+In Ako, the state of the parameter server can be saved to a file, and loaded during another training run so as to not commence from a completely untrained model each time. The Source is responsible for loading the saved model from a file and sending to both the workers and parameter server. As can be seen in Figure \ref{ControlFlow} which visualises the relation between the Source, Parameter Server, and Workers.
 
 \begin{figure}[H]
   \centering
@@ -917,84 +1045,57 @@ All components message-driven\footnote{https://en.wikipedia.org/wiki/Event-drive
   \label{ControlFlow}
 \end{figure}
 
-\subsection{Tasks}
-
-Each task in the SEEP graph represents some either a required SEEP construct, or a component of the machine learning program.
-
-\subsubsection{Source and Sink}
-
-SEEP requires the presence of a Source task and a Sink task, which both implement the \textbf{SeepTask} interface. The Sink in Ako is not used, as all communication exists solely between the workers and parameter server during training.
-\newline
-\newline
-In Ako, the state of the parameter server can be saved to a file, and loaded during another training run so as to not commence from a completely untrained model each time. The Source is responsible for loading the saved model from a file and sending to both the workers and parameter server.
-
 \subsubsection{Parameter Server}
 
 The Parameter Server is responsible for receiving and applying updates to the global model from workers, and also to co-ordinate the rounds of minibatches that will be processed. It's functionality is stored in the \textbf{ParamServer} class.
 \newline
 \newline
-All classes in Ako use the Java Kryo library \cite{kryo} for object serialisation and all serialised objects are represented as byte arrays to conform to the SEEP schema. After the update from the worker has been deserialised, it is used to augment the global model. Once the number of updates equals the number of workers then a round is complete, and the parameter server will send a message to alert the workers to commence a new round.
+All classes in Ako use the Java Kryo library \cite{kryo} for object serialisation and all serialised objects are represented as byte arrays to conform to the SEEP schema. After the update from the worker has been de-serialised, it is used to augment the global model. Once the number of updates equals the number of workers then a round is complete, and the parameter server will send a message to alert the workers to commence a new round.
 \newline
 \newline
-In order to prevent the Parameter Server from becoming a bottleneck in the system, messages are handled concurrently. Under the original Ako codebase, the Parameter Server would process messages sequentially, however, as performance is a concern the handling was changed to be in parallel. Listing \ref{ParameterServerParallel} contains the source code for the Parameter Server model update message handler.
+Listing \ref{ParameterServerParallel} details the Java code executed by the Parameter Server. Some method and variable names have been changed for brevity, but this is an accurate representation of the work performed by the Parameter Server.
 
-\begin{lstlisting}[caption={Parameter Server concurrent message handling},label=ParameterServerParallel]
-executor.submit(() -> {
-	int sid = dataTuple.getStreamId();
-	byte[] bytes = dataTuple.getBytes("content");
+\begin{lstlisting}[caption={Parameter Server message handling},label=ParameterServerParallel]
+int sid = dataTuple.getStreamId();
+byte[] bytes = dataTuple.getBytes("content");
 
-    ModelNN gradOnlyModel = useSpecificKryoToDeserialiseObject(sid, bytes);
+ModelNN gradients = deserialise(sid, bytes);
 
-    //Apply gradient to the neural-net model in this param server
-    applyAccumGradFromAnotherModelToMainModelDirectlyWithoutResetAccum(gradOnlyModel);
-    counter.incrementAndGet();
+//Apply gradient to the neural-net model in this param server
+applyUpdate(gradients);
+counter.incrementAndGet();
 
-    if (counter.compareAndSet(numReplica, 0)) {
-        //Extract only the weight from the current neural-net model state
-        ModelNN weightOnlyModel = ModelNN.produceModelNNWithWeightParameterPartOnly(getCurrentModelNNInstance());
+if (counter.compareAndSet(numReplica, 0)) {
+    //Extract only the weight from the current neural-net model state
+    ModelNN weightOnlyModel = ModelNN.extractWeight(getCurrentModelNNInstance());
 
-        byte[] weightOnlyModel_bytes = useSpecificKryoToSerialiseObject(sid, weightOnlyModel);
+    byte[] weightOnlyModel_bytes = serialise(sid, weightOnlyModel);
 
-        byte[] newGlobalModel = OTuple.create(schema,
-                new String[]{"task", "content"},
-                new Object[]{BEGIN_ROUND, weightOnlyModel_bytes});
+    byte[] newGlobalModel = OTuple.create(schema,
+            new String[]{"task", "content"},
+            new Object[]{BEGIN_ROUND, weightOnlyModel_bytes});
 
-        for (int i : rep_sids) {
-            api.sendToStreamId(i, newGlobalModel);
-        }
-        round++;
+    for (int i : workerIDs) {
+        api.sendToStreamId(i, newGlobalModel);
     }
-});
+    round++;
+}
 \end{lstlisting}
 
-The executor variable is a Java ExecutorService, a concurrency object in which tasks can be submitted and executed in a pool of threads. The thread pool used contains the same number of threads as the number of workers. With a very large number of workers this option would cause degraded performance as the amount of work would exceed the resources available, however it scales well up to the number of cores in a machine.
+Line 7 is the statement for updating the global model based on updates received from workers. Once $numReplica$ messages have been received the Parameter Server knows that a round has terminated, it generates a copy of the latest global model to distribute and sends it to all workers. Messages sent are a series of unicasts as SEEP uses TCP for inter-worker communication, and TCP does not offer the ability to broadcast. A future extension may be to allow the use of alternate protocols to facilitate broadcasts.
 \newline
 \newline
-This code block is located within the method responsible for handling incoming messages. In Java method parameters are thread local, meaning that each thread will receive its own copy. The \say{dataTuple} parameter referenced above is the parameter containing the message contents, but it can be safely passed to another thread in the ExecutorService because no other thread could have a reference to it. The code block also makes heavy use of the Java AtomicInteger object type. This is a thread-safe atomically incrementable integer which allows for low-overhead synchronisation and the ability to track the number of responses received from workers. The AtomicInteger in this case also ensures that all local updates have taken place before sending a \say{BEGIN\_ROUND} message, preventing the case where workers do not receive the freshest copy of the global state at the beginning of a round.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=2.5in]{parameterserveruml}
-  \caption[]{UML diagram of the parameter server class}
-  \label{ParameterServerUML}
-\end{figure}
+An attempt to convert the message processing of the Parameter Server was attempted. It introduced a large mental overhead to determining how to handle the possibility of multiple threads executing Listing \ref{ParameterServerParallel} concurrently as there was the potential for many, subtle data races. An evaluation of the serial vs concurrent versions was performed, and there was no significant performance improvement when using the concurrent version. The time taken to process a single message was within 2ms and the messages received by the Parameter Server were often spaced by more than that amount apart implying that there could not have been a significant performance improvement. The code was reverted to the serial implementation and has functioned without issue across several hundred thousand rounds of evaluation.
 
 \subsubsection{Worker}
 
 The workers are responsible for processing of images, augmenting their local models, and after finishing a minibatch, to send them to the parameter server. The workers were initially designed to only handle one type of message per round, so a significant effort was made to convert the system into an asynchronous model. This applies to both the centralised and decentralised models, as both have message types to respond to while training.
 \newline
 \newline
-Workers make heavy use of Java concurrency primitives to ensure thread safety and no data races. Languages such as Rust are able to remove the possibility of data races with the compiler, and this would have been an incredibly useful aide during programming as subtle bugs were common. Java contains a concurrency tool \textbf{Future} which represents the result of an asynchronous computation. It was used to ensure that a single worker would not block on the loading of images that it had stolen. The \textit{synchronized} keyword also made reasoning about control flow much easier as it guarantees that for a single instantiation of an object that a certain method cannot be called concurrently with any other thread. An ideal use case for this was the \textbf{train()} method, where training on stolen work should be delayed until the initial training is complete, but should also execute as soon after as possible.
+Workers make heavy use of Java concurrency primitives to ensure thread safety and no data races. Languages such as Rust are able to remove the possibility of data races with the compiler, and this would have been an incredibly useful aide during programming as subtle bugs were common. Java contains a concurrency tool \textbf{Future} which represents the result of an asynchronous computation. It was used to ensure that a single worker would not block on the loading of images that it had stolen. The \textit{synchronized} keyword also made reasoning about control flow much easier as it guarantees that for a single instantiation of an object that a certain method cannot be called concurrently by more than one thread. An ideal use case for this was the \textbf{train()} method, where training on stolen work should be delayed until the initial training is complete, but should also execute as soon after as possible. Workers would call the the \textit{train()} method after having loaded the stolen images and execution would continue as soon as the initial training had completed.
 \newline
 \newline
-Advice for concurrent programming is to avoid mutable and global state. If the messages being passed around contain all that is needed to execute the algorithm then there is no chance of data races. Unfortunately, in order for the message size to not have a significantly adverse affect on performance, they can only contain references and not values. Global state is also required as the messaging framework provided by SEEP is simply a method call, and Java object fields are required to store state between messages. The problem domain is also one that requires mutable state. The models are too large to simply create a new, immutable version on every update, and doing so would impose a heavy performance penalty for creating and garbage collecting so many objects.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=3in]{workeruml}
-  \caption[]{UML diagram of the worker class}
-  \label{WorkerUML}
-\end{figure}
+Advice for concurrent programming is to avoid mutable and global state. If the messages being passed around contain all that is needed to execute the algorithm then there is no chance of data races. Unfortunately, in order for the message size to not have a significantly adverse affect on performance, they can only contain references and not values. Global state is also required as the messaging framework provided by SEEP is simply a method call, and Java object fields are necessary to store state between messages. The problem domain is also one that requires mutable state. The models are too large to simply create a new, immutable version on every update, and doing so would impose a heavy performance penalty for creating and garbage collecting so many objects.
 
 \newpage
 
@@ -1052,6 +1153,9 @@ All experiments were analysed over 10 epochs of training. This limit was placed 
 \newline
 \newline
 The MNIST dataset contains 60,000 training images and labels, and 10,000 testing images and labels. Accuracy was measured by counting the number of correctly classified images in the testing dataset as a percentage of all images.
+\newline
+\newline
+It was found that there was no impact on accuracy at all when using work stealing. Graphical evidence of this was found to be gratuitous and therefore it is presented as a series of tables in Appendix A. 
 
 \subsection{Testing Environment}
 All experiments were run on Amazon Web Services (AWS), a public cloud computing environment offered by Amazon.com. AWS allows customers to rent virtual servers at a range of price and performance levels. In this evaluation, all virtual servers were co-located within the same data centre, with a round-trip time of below a millisecond when using the \textit{ping} utility. There were two levels of workers, \say{healthy} workers with 16 cores of compute, and \say{stragglers}, a weaker class of server with only 4 cores of compute. The motivation for using two classes of compute was to provide a fair level of comparison between experiments. It is unlikely in industrial use for two types of machine which differ so greatly in performance to be used in the same machine learning environment. In order to provide a fair comparison between two different experiments though, it was necessary to control for straggler performance, an infamously non-deterministic factor. An evaluation with intermittent stragglers will be discussed in a later section.
@@ -1276,6 +1380,10 @@ There are several possible extensions for the project, the majority of which foc
 \newline
 \textbf{Bounded Staleness}		Although one of the conclusions of the project was that the need for Bounded Staleness may be removed when using work stealing, it would have been a useful evaluation to compare the performance of the work stealing algorithms with both Bulk Synchronous Parallel and Bounded Staleness synchronisation schemes.	
 
+\newpage
+
+\appendix
+\section{Accuracy Results}
 
 \newpage
 

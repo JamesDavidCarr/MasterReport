@@ -14,8 +14,6 @@
 \usepackage{amsmath}
 \usepackage{chngcntr}
 
-\newcommand\todo[1]{\textcolor{red}{#1}}
-
 \urlstyle{same}
 \definecolor{dkgreen}{rgb}{0,0.6,0}
 \definecolor{gray}{rgb}{0.5,0.5,0.5}
@@ -46,14 +44,98 @@
 \counterwithin{lemma}{section}
 \AtBeginDocument{\counterwithin{lstlisting}{section}}
 
+\title{}
+\author{James-David Carr}
+
+\date{\today}
+
 \begin{document}
+\begin{titlepage}
+
+\newcommand{\HRule}{\rule{\linewidth}{0.5mm}} % Defines a new command for the horizontal lines, change thickness here
+
+\center % Center everything on the page
+ 
+%----------------------------------------------------------------------------------------
+%	HEADING SECTIONS
+%----------------------------------------------------------------------------------------
+
+\textsc{\LARGE Imperial College London}\\[1.5cm] % Name of your university/college
+\textsc{\Large MEng Computing}\\[0.5cm] % Major heading such as course name
+
+%----------------------------------------------------------------------------------------
+%	TITLE SECTION
+%----------------------------------------------------------------------------------------
+
+\HRule \\[0.4cm]
+{ \huge \bfseries Implementation and Evaluation of Work Stealing Algorithms in a Distributed Machine Learning Framework}\\[0.4cm] % Title of your document
+\HRule \\[1.5cm]
+
+\includegraphics[width=0.6\textwidth]{imperialCollegeCrest}
+ 
+%----------------------------------------------------------------------------------------
+%	AUTHOR SECTION
+%----------------------------------------------------------------------------------------
+
+\begin{minipage}{0.4\textwidth}
+\begin{flushleft} \large
+\emph{Author:}\\
+James-David \textsc{Carr} % Your name
+\end{flushleft}
+\end{minipage}
+~
+\begin{minipage}{0.4\textwidth}
+\begin{flushright} \large
+\emph{Supervisor:} \\
+Peter \textsc{Pietzuch} % Supervisor's Name
+\end{flushright}
+\end{minipage}\\[4cm]
+
+% If you don't want a supervisor, uncomment the two lines below and remove the section above
+%\Large \emph{Author:}\\
+%John \textsc{Smith}\\[3cm] % Your name
+
+%----------------------------------------------------------------------------------------
+%	DATE SECTION
+%----------------------------------------------------------------------------------------
+
+%----------------------------------------------------------------------------------------
+%	LOGO SECTION
+%----------------------------------------------------------------------------------------
+
+%\includegraphics{Logo}\\[1cm] % Include a department/university logo - this will require the graphicx package
+ 
+%----------------------------------------------------------------------------------------
+
+\vfill % Fill the rest of the page with whitespace
+
+\end{titlepage}
+
+\clearpage\thispagestyle{empty}\addtocounter{page}{-1} 
+\newpage \phantom{a}
+\clearpage\thispagestyle{empty}\addtocounter{page}{-1} 
+\newpage \phantom{a}
 
 \vspace*{\fill}
 \centerline{\large{\textbf{Abstract}}}
-Machine learning methods require many workers, all of whom iteratively analyse a dataset in parallel in a series of rounds, collecting their progress centrally at the end of each round. By implementing a work stealing algorithm, the delay introduced by the slowest workers each round will be mitigated. The goal of this project is to implement a work stealing algorithm and validate that it does provide a throughput increase of rounds completed per second. The algorithm is validated on the MNIST trainging set and is built on top of the work of the LSDS group at Imperial College London. An analysis and evaluation will be discussed in this report.
+Machine Learning in industry is now commonly used in a distributed environment with multiple workers training in parallel. As in any distributed environment, some workers will be stragglers and  operate at a significantly below average rate. The progress of many Machine Learning algorithms is bounded by the slowest worker. This project presents two distributed algorithms to mitigate the effect of stragglers through the use of work stealing. An evaluation on the MNIST training set shows that it is able to reduce the effects of stragglers by up to 43\% in a typical machine learning environment.
 \vspace*{\fill}
 
-\newpage
+\clearpage\thispagestyle{empty}\addtocounter{page}{-1} 
+\newpage \phantom{a}
+\clearpage\thispagestyle{empty}\addtocounter{page}{-1} 
+\newpage \phantom{a}
+
+\vspace*{\fill}
+\centerline{\large{\textbf{Acknowledgements}}}
+I would like to thank Peter Pietzuch for his guidance and support throughout the project, as well as his PhD student Pijika Watcharapichat for her kindness in helping me to begin the project, and Tony Field for his insightful and constructive comments on how to construct a accessible report.
+I would also like to thank my parents, my brother and my girlfriend Dania for their generosity and unconditional love during my studies at Imperial.
+\vspace*{\fill}
+
+\clearpage\thispagestyle{empty}\addtocounter{page}{-1} 
+\newpage \phantom{a}
+\clearpage\thispagestyle{empty}\addtocounter{page}{-1} 
+\newpage \phantom{a}
 
 \tableofcontents
 
@@ -292,15 +374,6 @@ The benefit of this system is that worker computations are now side-effect free 
 Such a solution is not viable without creating side effect free tasks as if two executions of the task were to occur they could both modify the external state.
 \newline
 \newline
-Consider Figure \ref{OverlappingExecution} which visualises how the overlapping of two executions could result in an incorrect result. There are solutions which account for this, however, it is much simpler to develop a solution for which this problem cannot occur.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{A demonstration of how multiple executions of the same task can interleave to return an incorrect result}
-  \label{OverlappingExecution}
-\end{figure}
-
 In Algorithm \ref{StatelessProduct} the only state modification is assignment which is an idempotent operation meaning that it can occur multiple times and still return an identical result. Therefore if two resources were to return their identical results before the termination of the algorithm it would not cause the result to be incorrect.
 \newline
 \newline
@@ -319,22 +392,22 @@ The algorithms presented in Section \ref{algorithms} are distributed in nature. 
 slowestWorkerInRound(i) < fastestWorkerInRound(i+1)
 \end{align*}
 
-Where $<$ represents a \say{happens before} relation between the two events in that if $x < y$ then $x$ must have occurred before $y$. However, the construction of such a relation is difficult in a distributed environment. It has been observed that there exists a skew amongst a set of physical clocks, that is, they were not all perfectly synchronised. The lack of synchronisation results in the inability to use physical timestamps to represent a \say{happens before} relation as  visualised in Figure \ref{PhysicalTimestamps}.
+Where $<$ represents a \say{happens before} relation between the two events in that if $x < y$ then $x$ must have occurred before $y$. However, the construction of such a relation is difficult in a distributed environment. It has been observed that there exists a skew amongst a set of physical clocks, that is, they were not all perfectly synchronised. The lack of synchronisation results in the inability to use physical timestamps to represent a \say{happens before} relation as  visualised in Figure \ref{PhysicalTimestamps}. The node with an inaccurate clock believes that it has received a message at $t = 9$, where the correct time of receipt is some time after $t = 10$. If the node were then required to use the time of message arrival in some further step of an algorithm, it may consider the event to have occurred before it actually did.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=4in]{todo}
+  \includegraphics[width=4in]{physicalTimeStamps}
   \caption[]{Visualisation of how physical timestamps cannot be used to represent causality.}
   \label{PhysicalTimestamps}
 \end{figure}
 
-Physical clocks cannot be used as no offers of ordering relation can be provided. A worker cannot be told to wait for a certain amount of time before proceeding to the next round as there are no guarantees that all workers will have finished in such a timeframe, and there also exists the possibility of a single worker having a malfunctioning clock such that it would not wait the correct amount of time, further aggravating the problem of synchronisation. Instead of a physical clock to track time, a logical ordering must be used instead. By exchanging messages amongst each other workers can track progress and know that all other workers have finished and therefore it is safe to proceed to the next round. In the field of distributed algorithms the network over which messages are exchanged can be reliable or unreliable. This project is concerned with a real world environment in which an unreliable network exists between workers. It is possible for such a network to still reliably deliver messages \cite{afek1994reliable}. Figure \ref{MessageRetransmissoin} shows how a message can either be delivered zero or one times with no acknowledgement received. The sender will be unable to differentiate these two cases and as a solution the messages are sent until an acknowledgement is received, and on the receiving side all message duplicates are ignored.
+Physical clocks cannot be used as no offers of ordering relation can be provided. A worker cannot be told to wait for a certain amount of time before proceeding to the next round as there are no guarantees that all workers will have finished in such a timeframe, and there also exists the possibility of a single worker having a malfunctioning clock such that it would not wait the correct amount of time, further aggravating the problem of synchronisation. Instead of a physical clock to track time, a logical ordering must be used instead. By exchanging messages amongst each other workers can track progress and know that all other workers have finished and therefore it is safe to proceed to the next round. In the field of distributed algorithms the network over which messages are exchanged can be reliable or unreliable. This project is concerned with a real world environment in which an unreliable network exists between workers. It is possible for such a network to still reliably deliver messages \cite{afek1994reliable}. Figure \ref{MessageRetransmission} shows how a message can either be delivered zero or one times with no acknowledgement received. The sender will be unable to differentiate these two cases and as a solution the messages are sent until an acknowledgement is received, and on the receiving side all message duplicates are ignored. Red lines indicate that a message transmission failed.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{Visualisation of how physical timestamps cannot be used to represent causality.}
-  \label{MessageRetransmissoin}
+  \includegraphics[width=6in]{MessageRetransmission}
+  \caption[]{Possible causes for message retransmission}
+  \label{MessageRetransmission}
 \end{figure}
 
 Protocols such as TCP are able to reliably deliver messages over an unreliable stream. TCP is heavily used in industry and as such for this project it will be assumed that message deliveries are reliable. The remainder of this project will use the assumption that message delivery is reliable. Using this property workers can now determine when it is safe to proceed to the next round after it has been determined that all workers have completed the current round.
@@ -349,16 +422,6 @@ $a \rightarrow b \longrightarrow C(a) < C(b)$
 \label{LogicalOrderingLemma}
 \end{lemma}
 $C(a)$ is the value of the Lamport logical clock at the time that event $a$ occurred.
-\newline
-
-Figure \ref{LogicalTimestamps} demonstrates the same situation as Figure \ref{PhysicalTimestamps} and how logical clocks are able to provide a correct representation of the environment. Logical clocks will be used implicitly in this project in order to ensure a correct logical ordering between events.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{Visual comparison of logical and physical clocks.}
-  \label{LogicalTimestamps}
-\end{figure}
 
 \subsection{Machine Learning}
 Machine Learning is a field of Computer Science associated with developing algorithms that can learn from and make predictions from data\cite{machineLearningDef}. It is closely related to the fields of Computational Statistics and Mathematical Optimisations, and results in computers which are able to detect patterns in data without explicit programming. The use of machine learning has spread well into industry and is now commonly used in areas such as finance, medicine, and telecommunications. This project is centred around improving the performance of machine learning in an environment with multiple workers.
@@ -402,19 +465,26 @@ Once the images have been normalised they are passed to the first layer of Neuro
 \subsubsection{MNIST Dataset}
 The MNIST dataset is a collection of handwritten digits, considered the ``Hello World'' of machine learning. It consists of 60,000 training examples and 10,000 testing examples, which are all accurately labelled. This project will be using the MNIST dataset in the evaluation of a work stealing algorithm. The set of training images will be divided into distinct subsets, and workers will be assigned a subset to train on. The benefit of dividing the images is that it will be faster to process these images in parallel and aggregate results rather than inspecting each image individually.
 
+\subsubsection{Distributed Machine Learning}
+
+There already exist many solutions to the problem of distributed machine learning. The main difference between a single worker and multiple workers is the need to synchronise each worker's model. There are two schemes for doing so: with a centralised store that all workers communicate with, or a decentralised version where workers exchange updates to each other. The decentralised version requires $\mathcal{O}(n^2)$ messages to be exchanged as each worker must communicate with all others. But the centralised version requires only $\mathcal{O}(n)$ messages. In order for the solution to scale well, the version with the lower message complexity must be chosen. This architecture will be discussed in more detail in Section \ref{paramserver}.
+\newline
+\newline
+An example of the centralised version is the Bosen system \cite{wei2015managed}, designed to scale to a cluster of at least 1024 cores and limits the amount of bandwidth used in its inter-worker communications to below a specified amount. However, Bosen does not consider the impact of stragglers.
+
 \subsection{Parameter Server Architecture} \label{paramserver}
 This project will investigate the effects of work stealing in a distributed machine learning framework. The advantage of a distributed framework are decreased training time, redundancy in the event of a single machine failing, and allowing training to occur on datasets that cannot fit on a single machine.
 \newline
 \newline
-In a single-worker parameter server environment there are two processes controlling the machine learning: the parameter server, acting as a datastore of the model, and the worker, updating the model based on new training data. Data is read by the single worker and processed in batches, referred to as ``minibatches'', where a single minibatch is processed each round. Updates based on the images trained on are sent to the master at the end of each round. At the start of each round each worker receives the latest model from the master and the updates at the end of each round represent augmentations of the local model.
+In the parameter server environment there are two processes controlling the machine learning: the parameter server, acting as a datastore of the model, and the worker, updating the model based on new training data. Data is read by the single worker and processed in batches, referred to as ``minibatches'', where a single minibatch is processed each round. Updates based on the images trained on are sent to the master at the end of each round. At the start of each round each worker receives the latest model from the master and the updates at the end of each round represent augmentations of the local model.
 \newline
 \newline
 Figure \ref{ParameterServerArchitecture} contains a visualisation of the parameter server architecture.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{A demonstration of how multiple executions of the same task can interleave to return an incorrect result}
+  \includegraphics[width=4in]{ParameterServerArchitecture}
+  \caption[]{The Parameter Server Architecture}
   \label{ParameterServerArchitecture}
 \end{figure}
 
@@ -455,13 +525,13 @@ The training of all images is known as an epoch. The errors accumulated at each 
 In an environment with multiple workers updates to each worker's local model are sent to the master for use in synchronising workers. There are three main strategies that are used in the parameter server environment.
 
 \subsubsection{Bulk Synchronous Parallel (BSP)}
-This is the simplest form of multi-worker synchronisation. At the end of each minibatch the workers send the updates to the parameter server which collects them and will not allow workers to proceed to the next batch until all updates have been received. The advantage of this strategy is that it guarantees that all workers will converge on a single model because workers by definition cannot display more than a single round of divergence in their models. There are however significant overheads in terms of waiting for the slowest worker per round to synchronise with the master. Traffic patters are also quite bursty with the potential for network congestion at the beginning of each minibatch round. This model allows for the greatest progress in a single round because all workers operate with the latest set of parameters.
+This is the simplest form of multi-worker synchronisation. At the end of each minibatch the workers send the updates to the parameter server which collects them and will not allow workers to proceed to the next batch until all updates have been received. The advantage of this strategy is that it guarantees that all workers will converge on a single model because workers by definition cannot display more than a single round of divergence in their models. There are however significant overheads in terms of waiting for the slowest worker per round to synchronise with the master. Traffic patters are also quite bursty with the potential for network congestion at the beginning of each minibatch round. This model allows for the greatest progress in a single round because all workers operate with the latest set of parameters which provides the greatest \textit{per-data-sample} progress \cite{langford2009slow}.
 
 \subsubsection{Full Asynchronous}
 If we consider $l$ to be the limit of the number of minibatch rounds between the slowest and fastest workers then we can consider BSP to have $l = 1$. In a Fully Asynchronous model then $l = \infty$, i.e. workers proceed at their own rate unimpaired by the progress of others. Fully asynchronous models will saturate compute capacity, a metric we wish to optimise for. However, because there is no guarantee on them receiving updates from other workers before proceeding on to the next minibatch, there is the possibility that the worker's local model is stale and outdated. This reduces the efficacy of training and will result in a slowed convergence. Worker's local models may also diverge resulting in an ineffective global model at the parameter server.
 
 \subsubsection{Bounded Staleness}
-In a Bounded Staleness model $l$ is configurable. In the event of a slow worker being caused by an transient delay, for example a pathological kernel scheduling, unaffected workers can continue to make progress and the delayed worker will hopefully catch up. If a worker is consistently slower, as could be the case with a less powerful host machine, then the same problems will occur with BSP, albeit with a difference of multiple minibatch rounds, rather than one.
+In a Bounded Staleness model $l$ is configurable. In the event of a slow worker being caused by an transient delay, for example a pathological kernel scheduling, unaffected workers can continue to make progress and the delayed worker will hopefully catch up. If a worker is consistently slower, as could be the case with a less powerful host machine, then the same problems will occur with BSP, albeit with a difference of multiple minibatch rounds, rather than one. An important result is that it is possible for workers that diverge by a fixed number of rounds to still converge on a single model \cite{NIPS2013_4894}. Without such a result, Bounded Staleness would not provide much practical use as the converge of a global model is the most important feature of a distributed machine learning environment.
 \newline
 \newline
 In a conventional machine learning framework, the computation and updating of local parameters will be performed separately. The intention is to saturate all possible resources, which is only attainable if the separate processes are decoupled.
@@ -527,21 +597,15 @@ To implement work stealing between workers in a parameter server architecture tw
 
 \subsection{Centralised Model}
 
-The centralised approach is based upon workers sending periodic updates to the master with their current status. The interval between these updates is configurable, but through evaluation of these intervals I have found that diminishing returns occur beyond TODO intervals as can be seen in Figure \ref{IntervalGraph} which shows that there exists a diminishing return in the benefit of finer progress granularity.
+The centralised approach is based upon workers sending periodic updates to the master with their current status. The interval between these updates is configurable, but through evaluation of these intervals I have found that diminishing returns occur beyond 5 intervals per round. With more than 8 workers, this limit drops to 3 as workers begin to overwhelm the Parameter Server with update messages.
+\newline
+\newline
+Updates to the master occur multiple times per round for each worker, and each round is usually completed within 40-80ms per worker depending on number of cores available. The diminishing returns occur due to a linear performance profile during each round for workers. In the event of a performance degradation, the cause is unlikely to be resolved within a single round. Therefore while certain rounds contain the start of a transient event that affects performance, most rounds occur in either an optimal or degraded state, and do not alter between within a single round. This can be seen on Figure \ref{RoundDegradation} which shows how transient events affect multiple rounds. This result was achieved by inducing a CPU intensive process during machine learning training. Note the very sudden increases in time per round indicating that these events occur very quickly. The precision of the graph is not fine enough, but the raw data reveals that this increase in average time occurred within a single round.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{Graph showing update interval against relative performance.}
-  \label{IntervalGraph}
-\end{figure}
-
-Updates to the master occur multiple times per round for each worker, and each round is usually completed within 40-80ms per worker depending on number of cores available. The diminishing returns occur due to a linear performance profile during each round for workers. In the event of a performance degradation, the cause is unlikely to be resolved within a single round. Therefore while certain rounds contain the start of a transient event that affects performance, most rounds occur in either an optimal or degraded state, and do not alter between within a single round. This can be seen on Figure \ref{RoundDegradation} which shows how transient events affect multiple rounds.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{Graph showing update interval against relative performance.}
+  \includegraphics[width=4in]{RoundDegradation}
+  \caption[]{Graph showing effects of transient events}
   \label{RoundDegradation}
 \end{figure}
 
@@ -560,24 +624,7 @@ Initially, four centralised notification exchange schemes were considered and be
 The distinction between \say{end of round} and \say{before end of round} refer to when the centralised master would send the messages indicating to workers how they would be affected by work stealing. Immediately the first approach can be ruled out as the master cannot know whether a worker is close to completing their round without updates. Such a system could have depended upon prior rounds and projecting round completion into the future, but this would be vulnerable to unexpected delays, which was the intention of the project.
 \newline
 \newline
-The benefits of sending messages before the end of the round is that it allows the worker that is stealing to pre-load their image buffer so that immediately upon terminating its initial batch it could process the stolen work. There is a concern with this approach that communication delays would cause the message alerting the victim of work-stealing to not execute certain tasks to arrive after they had been processed. TODO explain why this is not ideal, but won't significantly affect performance.
-\newline
-\newline
-Figure \ref{RepeatedEvents} shows the number of repeated images processed across TODO rounds of training. This is a measure that should be minimised and it can be seen that \say{Updates and messages sent before end of round} achieves the lowest score in this metric. Figure \ref{EventProcessingPerformance} shows the relative performance of the various schemes in the presence of stragglers, and again say{Updates and messages sent before end of round} is shown to be the superior choice.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{Graph showing notification schemes against number of repeated images. Lower is better.}
-  \label{RepeatedEvents}
-\end{figure}
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{Graph showing notification schemes against number of repeated images. Lower is better.}
-  \label{EventProcessingPerformance}
-\end{figure}
+The benefits of sending messages before the end of the round is that it allows the worker that is stealing to pre-load their image buffer so that immediately upon terminating its initial batch it could process the stolen work. There is a concern with this approach that communication delays would cause the message alerting the victim of work-stealing to not execute certain tasks to arrive after they had been processed. This will not affect the correctness of the model as all the machine learning algorithms considered in this project are iterative in that they will be exposed to all data items multiple times. The additional exposure of a small number of elements will cause a slight divergence in the model if the element had not been trained on twice, but these repeated elements represent under 0.01\% of all training elements based on empirical evaluation.
 
 \subsubsection{Centralised Algorithm for Workers}
 
@@ -642,8 +689,6 @@ In Algorithms \ref{CentralisedAlgorithmWorker} and \ref{CentralisedAlgorithmServ
 
 In Algorithm \ref{CentralisedAlgorithmWorker}, $sendUpdateToMaster()$ and $sendResultToServer()$ are simply convenience methods to communicate with the parameter server, and will not be included for clarity. The $train$ function trains the machine learning model with the specified image. $skipImages$ will skip the specified images from the end of the worker's current minibatch. A \say{steal} message will instruct the worker to read the images that another worker has been too slow to process. \say{lose} is the equivalent call to the victim of work stealing to indicate that a number of images have been lost and that they should skip them when training. \say{nack} is used to indicate that no action should be taken this round as all workers are operating at a rate similar enough that any attempt at work stealing would incur additional overhead.
 
-TODO adjust these sections
-
 In Algorithm \ref{CentralisedAlgorithmWorker} there is a call to $awaitResponse()$. This is a method which blocks execution until the worker has received either a \say{nack}, \say{lose}, or \say{steal} message and handled its body. Message delivery in this system is designed to be asynchronous, so that messages can be received and handled simultaneously. The system has also been designed so that there is a guarantee that a worker cannot receive a \say{beginRound} message until the completion of this current round. The usage of this message can be seen as an equivalent to a logical clock in that it imposes an ordering on the modification of state in the system. If a worker were to steal work it can be ensured that they would not call $sendResultToServer$ more than once per round. Figure \ref{awaitResponse} shows the necessity of such a blocking call and how the logical ordering of events is able to prevent race conditions in a way that physical clocks can not.
 \newline
 \newline
@@ -654,16 +699,6 @@ As mentioned previously, there is the potential for some images to be repeated w
 \newline
 \newline
 This algorithm would achieve resiliency against the same image being processed multiple times, however the Two-Phase Commit is known for being a high overhead approach, and in this scenario the overhead outweighs the benefits.
-\newline
-\newline
-In the current implementation of Algorithm \ref{CentralisedAlgorithmWorker} the server will send a response to workers who will steal work before they have finished their current batch. This is to achieve greater performance by pipelining the tasks that the worker will perform. While the current batch of images is being processed, new images are being read. Figure \ref{RepeatedEvents} shows that this approach has led to TODO repeated events, and has not impacted accuracy.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{Explanation of how physical timestamps cannot be used to represent causality.}
-  \label{awaitResponse}
-\end{figure}
 
 \subsubsection{Centralised Algorithm for Parameter Server}
 
@@ -734,37 +769,41 @@ $l$ is the worker-parameter server message delay time.
 $i$ is the time taken for the fastest worker to read the images stolen from the slowest worker.
 $s$ is the time taken to send the round model from a worker to the parameter server.
 $x$ is the number of images that have been stolen.
+$l$ is the cost of sending a message to the server alerting that work has finished.
 
 We can formulate these terms into the following approximation modelling the effects of work stealing.
-\newline
-$t_1 + \frac{x}{r_1} + 2l + i + s \approx t_2 - \frac{x}{r_2} + s$
-\newline
-The $l$ in the above equation represents the cost of sending a message to the server alerting that work has finished, and then the server responding with either a $nack$ or $steal$ message.
-\newline
+\begin{align*}
+t_1 + \frac{x}{r_1} + 2l + i + s \approx t_2 - \frac{x}{r_2} + s
+\end{align*}
+
 If updates are used then the cost of both of those messages, as well as the cost of reading the images to be stolen, will in the average case reduce to no cost. Using updates allows the server to co-ordinate workers before they have finished their initial batches, and therefore no extra overhead results. Note that the $s$ value can also be ignored, as it is constant for both the victim of work stealing, as well as the worker stealing work.
 \newline
 The reformulated approximation to account for updates is then.
-\newline
-$t_1 + \frac{x}{r_1} \approx t_2 - \frac{x}{r_2}$
-\newline
+\begin{align*}
+t_1 + \frac{x}{r_1} \approx t_2 - \frac{x}{r_2}
+\end{align*}
 $t_2$ is not a fixed value as it will occur in the future and therefore a prediction of its value shall be used instead. At $t_1$ the slower worker has $m$ images left to process this round, and would have $m -x $ images left after work stealing. Therefore an estimate for $t_2$ is $t_1 + \frac{m-x}{r_2}$, using a linear regression based on the training rate achieved by the slower worker this round. As mentioned previously, the assumption used is that in the average case that workers maintain a constant training rate per round.
 \newline
 The approximation can therefore be rewritten as.
-\newline
-$t_1 + \frac{x}{r_1} \approx t_1 + \frac{m-x}{r_2} - \frac{x}{r_2}$
+\begin{align*}
+t_1 + \frac{x}{r_1} \approx t_1 + \frac{m-x}{r_2} - \frac{x}{r_2}
+\end{align*}
 \newline
 A rearrangement of this approximation to solve for $x$ leads to.
-\newline
-$x \approx \frac{r_1m}{r_2 + 2r_1}$
-\newline
+\begin{align*}
+x \approx \frac{r_1m}{r_2 + 2r_1}
+\end{align*}
 $m$ can also be approximated as the exact value at $t_1$ is not known. All workers begin each round with $I$ images to process, and using another linear regression on the training rate the following approximation can occur.
-\newline
-$m \approx I - t_1r_2$
+\begin{align*}
+m \approx I - t_1r_2
+\end{align*}
 \newline
 Which leads to a final approximation of x.
 \newline
-$x \approx \frac{r_1(I - t_1r_2)}{r_2 + 2r_1}$
-\newline
+\begin{align*}
+x \approx \frac{r_1(I - t_1r_2)}{r_2 + 2r_1}
+\end{align*}
+
 These values are all known by the server which allows it to make a high quality prediction for whether it would be beneficial to steal work this round. It is a deliberate choice to calculate these values on a per-round basis to provide the greatest level of dynamic work stealing, and also the overhead of such a calculation is minimal. The result of this approximation is defined as $minimumStealingAmount$ in Algorithm \ref{CentralisedAlgorithmServer}.
 
 \subsection{Decentralised Model}
@@ -816,10 +855,29 @@ There are guarantees imposed on further steps in the algorithm which ensure that
 
 \subsubsection{Minimum Sufficient Work Stealing Value}
 Similar to the centralised model there exists a minimum value for which work stealing will be beneficial. If the model in which messages are exchanged prior to round completion is considered then the resulting approximation for the number of images to steal, x,  is identical.
-\newline
-$x \approx \frac{r_1(I - t_1r_2)}{r_2 + 2r_1}$
-\newline
+\begin{align*}
+x \approx \frac{r_1(I - t_1r_2)}{r_2 + 2r_1}
+\end{align*}
 Where $r_1$ and $r_2$ are the training rates of the fastest and slowest workers respectively. The slower worker, upon receiving the message will be able to determine the faster worker's rate by accounting for a slight message delay, and it will know its own rate exactly.
+\newline
+Using the following equations for the value of $r_1$ and $r_2$ the approximation can be further refined.
+\begin{align*}
+r_1 = \frac{I(1-threshold}{t_1- l}
+\end{align*}
+
+Where $l$ is the inter-worker message delay. At time $t_1$ the slower worker has received the message but between sending the message and its arrival the faster worker will have continued to process images. The value of $t_1 - l$ is sent by the faster worker as part of the message so that the slower worker can know exactly how long it took to process up to the threshold.
+
+\begin{align*}
+x = \frac{I - rem}{t_1}
+\end{align*}
+
+Where $rem$ is the number of images remaining.
+\newline
+Using these values, the final approximation for the decentralised algorithm is:
+
+\begin{align*}
+x \approx \dfrac{\dfrac{I(1 - threshold)rem}{t_1 - l}}{\dfrac{I - rem}{t_1} + \frac{2I(1 - threshold)}{t_1 - l}}
+\end{align*}
 
 \subsubsection{Decentralised Algorithm Work Stealing Protocol}
 
@@ -898,12 +956,12 @@ If the fastest worker has work to steal, it will read the images at the appropri
 A major concern for the decentralised model is the lack of co-ordination between the slower workers. When using the centralised model, it can be ensured that only a single batch of stolen work is sent to the fastest worker as well as only one worker stealing work. This section shall contain an analysis of these problems, as well as mitigations in application.
 \newline
 \newline
-Message transmissions incur a physical time delay. Figure \ref{messageInterleave} visualises how multiple wokers could believe that they are the fastest worker. Based on the use of this work stealing algorithm in practise it is very common that at least two workers send \say{remaining} messages.
+Message transmissions incur a physical time delay. Figure \ref{messageInterleave} visualises how multiple workers could believe that they are the fastest worker. Based on the use of this work stealing algorithm in practise it is very common that at least two workers send \say{remaining} messages.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{Explanation of how physical timestamps cannot be used to represent causality.}
+  \includegraphics[width=4in]{messageInterleave}
+  \caption[]{Interleaving \say{remaining} messages}
   \label{messageInterleave}
 \end{figure}
 
@@ -917,24 +975,7 @@ The following two rules define the decentralised work stealing protocol in the e
 It is for this reason that Algorithm \ref{DecentralisedAlgorithmWorkerRemaining} contains the $receivedRemaining \lor sentRemaining$ statement. If a worker has already received a \say{remaining} message then it can have responded with either a \say{nack}, in which case any future messages should return \say{nack} as the number of images remaining decreases monotonically, or it will have responded with a \say{remainingResponse} in which case a \say{nack} should be returned to oblige with the first rule.
 \newline
 \newline
-If message complexity is considered then the worst case is when all workers consider themselves to the fastest worker. With $n$ workers, and each worker anticipating $n-1$ responses, the message complexity would be $\mathcal{O}(n^2)$. If all workers were to operate at the same rate then this would also turn into the average case.
-\newline
-\newline
-The aim is to therefore prevent all workers sending \say{remaining} messages at the same time regardless of rate of training. A solution to this is to add some randomness into the threshold value used to determine whether or not a worker should send a \say{remaining} message. It is important that such a skew is small enough to not cause stragglers to possibly report themselves as the fastest worker, and to also prevent the fastest workers from fetching work too late. The value used should also be randomly generated on a per-round basis, otherwise it may result in a single worker continuously stealing work even if another worker were further ahead.
-\newline
-\newline
-A value of $0.1*miniBatchSize$ has found to be useful, and Figure \ref{skewValue} presents an analysis on the range of possible values used, including no skew.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{Explanation of how physical timestamps cannot be used to represent causality.}
-  \label{skewValue}
-\end{figure}
-
-Even when using the skew value to offset workers, the worst case in terms of message complexity still remains $\mathcal{O}(n^2)$, however, the average case is now $\mathcal{O}(n)$. This represents a large decrease in the number of messages sent, and is a requirement for the model to scale well to many workers.
-
-The other main problem with the decentralised model is the possibility of many workers sending \say{remainingResponse} messages to the fastest worker. This represents the largest flaw with the decentralised model.
+If message complexity is considered then the worst case is when all workers consider themselves to the fastest worker. With $n$ workers, and each worker anticipating $n-1$ responses, the message complexity would be $\mathcal{O}(n^2)$. This becomes the average case when all workers operate at the same rate, and thus an improvement could be made here. One consideration was to assign each worker a \say{skew} at the start of each round which would randomly vary when each worker would reach its threshold value. The work stealing equation would account for this skew and it would reduce the number of cases of multiple workers sending \say{remaining} messages, and the average case would be that only a single worker would send the \say{remaining} message. The other main problem with the decentralised model is the possibility of many workers sending \say{remainingResponse} messages to the fastest worker. A possible solution to this would be work \say{shedding} where the fastest worker is able to offload multiple work offers to workers it has received \say{nacks} from as it knows these workers have reached their threshold.
 
 \newpage
 
@@ -1011,7 +1052,7 @@ Figure \ref{AkoGraph} is the SEEP graph when Ako is using two workers. More work
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=4in]{todo}
+  \includegraphics[width=4in]{AkoGraph}
   \caption[]{The SEEP directed graph used by Ako with two workers}
   \label{AkoGraph}
 \end{figure}
@@ -1020,8 +1061,8 @@ Ako initially was not able to exchange messages between workers as it was only r
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=4in]{todo}
-  \caption[]{The SEEP directed graph used by Ako with two workers}
+  \includegraphics[width=4in]{SEEPStreamIDs}
+  \caption[]{The stream numbering scheme between two Ako workers}
   \label{SEEPStreamIDs}
 \end{figure}
 
@@ -1040,7 +1081,7 @@ In Ako, the state of the parameter server can be saved to a file, and loaded dur
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=4in]{todo}
+  \includegraphics[width=4in]{ControlFlow}
   \caption[]{Control Flow between components}
   \label{ControlFlow}
 \end{figure}
@@ -1092,9 +1133,23 @@ An attempt to convert the message processing of the Parameter Server was attempt
 The workers are responsible for processing of images, augmenting their local models, and after finishing a minibatch, to send them to the parameter server. The workers were initially designed to only handle one type of message per round, so a significant effort was made to convert the system into an asynchronous model. This applies to both the centralised and decentralised models, as both have message types to respond to while training.
 \newline
 \newline
-Workers make heavy use of Java concurrency primitives to ensure thread safety and no data races. Languages such as Rust are able to remove the possibility of data races with the compiler, and this would have been an incredibly useful aide during programming as subtle bugs were common. Java contains a concurrency tool \textbf{Future} which represents the result of an asynchronous computation. It was used to ensure that a single worker would not block on the loading of images that it had stolen. The \textit{synchronized} keyword also made reasoning about control flow much easier as it guarantees that for a single instantiation of an object that a certain method cannot be called concurrently by more than one thread. An ideal use case for this was the \textbf{train()} method, where training on stolen work should be delayed until the initial training is complete, but should also execute as soon after as possible. Workers would call the the \textit{train()} method after having loaded the stolen images and execution would continue as soon as the initial training had completed.
-\newline
-\newline
+Workers make heavy use of Java concurrency primitives to ensure thread safety and no data races. Languages such as Rust are able to remove the possibility of data races with the compiler, and this would have been an incredibly useful aide during programming as subtle bugs were common. Java contains a concurrency tool \textbf{Future} which represents the result of an asynchronous computation. It was used to ensure that a single worker would not block on the loading of images that it had stolen. The \textit{synchronized} keyword also made reasoning about control flow much easier as it guarantees that for a single instantiation of an object that a certain method cannot be called concurrently by more than one thread. An ideal use case for this was the \textbf{train()} method, where training on stolen work should be delayed until the initial training is complete, but should also execute as soon after as possible. Workers would call the the \textit{train()} method after having loaded the stolen images and execution would continue as soon as the initial training had completed. Listing \ref{AsyncImages} contains the Java code executed by the workers when reading images. The $readFromStolenBuffer$ field is used to ensure that while training that a worker reads its own images and while stealing work it only reads stolen images. The images are read before proceeding to train on the stolen work and through profiling of the Java code it was found that the image reading does not impede the progress of the Java code.
+
+\begin{lstlisting}[caption={Image Reading},label=AsyncImages]
+// Now read the stolen images to the buffer while initial training continues.
+readStolenImagesToBuffer(workStolenCount, senderID);
+
+// Block for the current batch of training to finish.
+try {
+    currentTraining.get();
+} catch (InterruptedException | ExecutionException e) {
+    e.printStackTrace();
+}
+
+this.readFromStolenBuffer = true;
+\end{lstlisting}
+
+
 Advice for concurrent programming is to avoid mutable and global state. If the messages being passed around contain all that is needed to execute the algorithm then there is no chance of data races. Unfortunately, in order for the message size to not have a significantly adverse affect on performance, they can only contain references and not values. Global state is also required as the messaging framework provided by SEEP is simply a method call, and Java object fields are necessary to store state between messages. The problem domain is also one that requires mutable state. The models are too large to simply create a new, immutable version on every update, and doing so would impose a heavy performance penalty for creating and garbage collecting so many objects.
 
 \newpage
@@ -1140,7 +1195,7 @@ However, the absolute metric that should be evaluated is model accuracy, and inc
 The centralised model is dependent upon the parameter server handling all messages. Reading each message causes a time delay imposed by the SEEP platform. At a greater number of workers it may result in the parameter server's main functionality being delayed while work stealing messages are handled. The number of messages received per round for the parameter server is $\mathcal{O}(nm)$, where $n$ is the number of workers, and $m$ the update interval. Conversely, in the decentralised model the number of messages received per round for the fastest worker is only $\mathcal{O}(n)$. At larger values of $n$ this difference will result in a significant increase in message volume for the parameter server.
 
 \subsection{Machine Learning Accuracy}
-An expected result was that a greater number of machines that the accuracy would be lower after a give number of epochs. This is due to the greater synchronisation delays where the rate of propagation is inversely proportional to the number of workers. TODO add citation. Conversely, the time taken to train on a single epoch is inversely proportional to the number of workers as fewer images per worker must be processed by each worker. The data collected on epoch duration was not collected in any of the experiments as it was not related to the objective of this project. TODO try and find out when it's not worth having more workers.
+An expected result was that a greater number of machines that the accuracy would be lower after a give number of epochs. This is due to the greater synchronisation delays where the rate of propagation is inversely proportional to the number of workers. Conversely, the time taken to train on a single epoch is inversely proportional to the number of workers as fewer images per worker must be processed by each worker. The data collected on epoch duration was not collected in any of the experiments as it was not related to the objective of this project.
 \newline
 \newline
 Unless specified otherwise, workers trained with minibatch sizes of 25. The larger the size of the minibatch, the longer between worker synchronisations, which leads to a worsened accuracy. 25 was chosen as it provided a good compromise between: amount of work stolen, accuracy, and message volume. An evaluation of differing sizes of minibatch is provided later.
@@ -1282,7 +1337,7 @@ Figure \ref{FastestStragglerCentralised} results were not in line with expectati
 
 It is useful to compare Figure \ref{SlowestStragglerCentralised} against its decentralised equivalent, Figure \ref{SlowestStragglerDecentralised}. It can be seen that the fastest time per round is lower than the decentralised equivalent. This is evidence that the work stealing is less evenly spread, and when combined with less work being stolen per round it results in a greater difference between the fastest worker and the slowest worker. This result implies that the centralised work stealing model is less effective than the decentralised.
 
-\subsection{Minibatch size}
+\subsection{Minibatch size} \label{size}
 
 When attempting to compare minibatch size as a parameter, the aim was to show that the impact of work stealing is greater when larger minibatch sizes are used. Note that there is no value for 8 workers with a minibatch size of 10 for either of the algorithms. SEEP uses a single buffer to store messages that will be sent over a connection, and if a message is written to the buffer before another has been sent then SEEP will terminate. SEEP offers the ability to control the number of threads reading from and writing to the network, and in most of the other experiments setting 32 threads was sufficient, in this situation it wasn't. Even after setting to 128 threads the issues were not resolved. SEEP uses TCP connections, and perhaps with a lower overhead connection such as RDMA the time taken to drain the buffer to the network would be reduced and therefore no collisions would occur.
 \newline
@@ -1379,16 +1434,127 @@ There are several possible extensions for the project, the majority of which foc
 \newline
 \newline
 \textbf{Bounded Staleness}		Although one of the conclusions of the project was that the need for Bounded Staleness may be removed when using work stealing, it would have been a useful evaluation to compare the performance of the work stealing algorithms with both Bulk Synchronous Parallel and Bounded Staleness synchronisation schemes.	
-
-\newpage
-
-\appendix
-\section{Accuracy Results}
+\newline
+\newline
+\textbf{Evaluation on Alternate Datasets}		All of the analysis was performed on the MNIST training dataset, a very widely used benchmark. It would have been interesting to evaluate the algorithms under a range of datasets. No part of any algorithm is specific to MNIST and performance under different workloads would have been interesting to analyse.
 
 \newpage
 
 \bibliographystyle{plain}
 \bibliography{James-DavidCarr-MastersReport}
+
+\newpage
+
+\appendix
+\section{Accuracy Results} \label{accuracyResults}
+
+It was found that work stealing had no negative impact on the accuracy of the machine learning training. This was an important result as it was more important that accuracy be maintained than performance improved with work stealing. Appendix \ref{accuracyResults} contains the collection of recorded accuracy results after 10 epochs of training under all testing environments. All training values are the average amongst the workers present in each environment. The missing values in Tables 7, 8, and 9 are explained in Section \ref{size}.
+
+\begin{table}[htb]
+\centering
+\caption{No Work Stealing}
+\begin{tabular}{l | c | r}
+2 workers & 4 workers & 8 workers \\ \hline
+96.39     & 94.04     & 89.12
+\end{tabular}
+\end{table}
+
+\begin{table}[htb]
+\centering
+\caption{Decentralised Algorithm - Varying Work Stealing Threshold}
+\begin{tabular}{l | c | c | r}
+Threshold & 2 workers & 4 workers & 8 workers \\ \hline
+0                 & 96.34     & 94.18     & 89.56     \\ \hline
+0.1               & 96.43     & 94.14     & 89.98     \\ \hline
+0.2               & 96.42     & 94.32     & 89.41     \\ \hline
+0.3               & 96.21     & 94.28     & 89.27     \\ \hline
+0.4               & 96.34     & 94.08     & 89.06     \\ \hline
+0.5               & 96.38     & 94.05     & 89.12
+\end{tabular}
+\end{table}
+
+\begin{table}[htb]
+\centering
+\caption{Centralised Algorithm - Varying Work Stealing Threshold}
+\begin{tabular}{l | c | c | r}
+Threshold & 2 workers & 4 workers & 8 workers \\ \hline
+0                 & 96.88     & 94.2      & 89.96     \\ \hline
+0.1               & 96.47     & 94.33     & 89.56     \\ \hline
+0.2               & 96.53     & 94.57     & 89.43     \\ \hline
+0.3               & 96.51     & 94.12     & 89.22     \\ \hline
+0.4               & 96.49     & 94.66     & 90.02     \\ \hline
+0.5               & 96.41     & 94.73     & 89.18
+\end{tabular}
+\end{table}
+
+\begin{table}[htb]
+\centering
+\caption{No Work Stealing - Varying Number of Straggling Workers}
+\begin{tabular}{l | c | r}
+\% Stragglers & 4 workers & 8 workers \\ \hline
+0\%               & 94.05     & 89.26     \\ \hline
+25\%             & 94.04     & 89.57     \\ \hline
+50\%             & 94.05     & 89.34
+\end{tabular}
+\end{table}
+
+\begin{table}[htb]
+\centering
+\caption{Decentralised Algorithm - Varying Number of Straggling Workers}
+\begin{tabular}{l | c | r}
+\% Stragglers & 4 workers & 8 workers \\ \hline
+0\%               & 94.22     & 90.12     \\ \hline
+25\%              & 94.32     & 90.45     \\ \hline
+50\%              & 94.11     & 90.28
+\end{tabular}
+\end{table}
+
+\begin{table}[htb]
+\centering
+\caption{Centralised Algorithm - Varying Number of Straggling Workers}
+\begin{tabular}{l | c | r}
+\% Stragglers & 4 workers & 8 workers \\ \hline
+0\%               & 94.12     & 90.04     \\ \hline
+25\%              & 94.73     & 90.13     \\ \hline
+50\%              & 93.9      & 90.65
+\end{tabular}
+\end{table}
+
+\begin{table}[htb]
+\centering
+\caption{No Work Stealing - Varying Minibatch Size}
+\begin{tabular}{l | c | c | r}
+Size & 2 workers & 4 workers & 8 workers \\ \hline
+10                & 98.3      & 96.62     &           \\ \hline
+25                & 96.39     & 94.04     & 89.12     \\ \hline
+50                & 94.03     & 90.64     & 84.84     \\ \hline
+100               & 90.54     & 85.25     & 80.39
+\end{tabular}
+\end{table}
+
+\begin{table}[htb]
+\centering
+\caption{Decentralised Algorithm - Varying Minibatch Size}
+\begin{tabular}{l | c | c | r}
+Size & 2 workers & 4 workers & 8 workers \\ \hline
+10                & 98.24     & 97.06     &           \\ \hline
+25                & 96.47     & 94.18     & 89.56     \\ \hline
+50                & 93.78     & 90.73     & 84.68     \\ \hline
+100               & 90.71     & 84.97     & 78.77
+\end{tabular}
+\end{table}
+
+\begin{table}[htb]
+\centering
+\caption{Centralised Algorithm - Varying Minibatch Size}
+\begin{tabular}{l | c | c | r}
+Size & 2 workers & 4 workers & 8 workers \\ \hline
+10                & 98.33     & 96.78     &           \\ \hline
+25                & 96.24     & 94.48     & 89.45     \\ \hline
+50                & 93.87     & 91.03     & 84.55     \\ \hline
+100               & 90.23     & 85.67     & 79.66
+\end{tabular}
+\end{table}
 
 \end{document}
 
